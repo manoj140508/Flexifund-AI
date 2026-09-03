@@ -1,0 +1,14 @@
+# FlexiFund AI
+> "When your income changes, your financial plan should change with it."
+
+FlexiFund AI is a deterministic financial resilience product designed specifically for gig workers, freelancers, and irregular income earners in India.
+It analyzes real user-provided financial transaction data through deterministic mathematical models to evaluate:
+- Income volatility (Coefficient of Variation)
+- Conservative planning baseline references
+- Essential daily and monthly burn rates
+- Emergency buffer coverage runway (when cash balance is provided)
+- Avoidable bank charges and recurring discretionary outflows
+- Financial pressure warning signals
+- What-If sensitivity shocks
+- Verified social security and worker welfare matching (e-Shram, PM-SYM, PM SVANidhi, PMJJBY, PMSBY, AB-PMJAY, BOCW, APY)
+- Prioritized action plans

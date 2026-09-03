@@ -1,0 +1,239 @@
+[
+  {
+    "id": "eshram_social_security",
+    "name": "e-Shram National Database & Accidental Insurance",
+    "organization": "Ministry of Labour & Employment, Government of India",
+    "category": "Social Security",
+    "targetWorkerType": "Unorganised Workers, Gig & Platform Delivery Partners, Drivers",
+    "jurisdiction": "Central (All India)",
+    "description": "Centralized registration portal for unorganised workers that issues a Universal Account Number (UAN) card and provides direct access to accidental death and disability benefits.",
+    "potentialBenefit": "₹2,00,000 cover in case of accidental death or permanent disability; ₹1,00,000 for partial disability. Direct portal integration for DBT during national emergencies.",
+    "eligibilityRules": {
+      "minAge": 16,
+      "maxAge": 59,
+      "requiresUnorganizedStatus": true,
+      "requiresBankAccount": true,
+      "allowedWorkerCategories": ["GIG_PLATFORM", "STREET_VENDOR", "CONSTRUCTION", "DOMESTIC_WORKER", "FREELANCER", "AGRICULTURAL", "OTHER_INFORMAL"]
+    },
+    "requiredDocuments": [
+      "Aadhaar Number with linked mobile phone",
+      "Active Savings Bank Account with IFSC code",
+      "Occupation details"
+    ],
+    "applicationSteps": [
+      "Visit the official e-Shram portal (eshram.gov.in).",
+      "Enter Aadhaar linked mobile number and complete OTP verification.",
+      "Fill personal, address, and primary occupation details.",
+      "Enter bank account details for Direct Benefit Transfer.",
+      "Download and print your 12-digit UAN card."
+    ],
+    "officialUrl": "https://eshram.gov.in",
+    "lastVerifiedDate": "2024-01-15",
+    "verificationStatus": "OFFICIALLY_VERIFIED"
+  },
+  {
+    "id": "pmsym_pension",
+    "name": "Pradhan Mantri Shram Yogi Maan-dhan (PM-SYM)",
+    "organization": "Ministry of Labour & Employment & LIC of India",
+    "category": "Pension",
+    "targetWorkerType": "Street vendors, delivery workers, drivers, domestic workers, daily-wage laborers",
+    "jurisdiction": "Central (All India)",
+    "description": "Voluntary and contributory pension scheme for unorganised workers to ensure financial dignity in old age.",
+    "potentialBenefit": "Guaranteed minimum monthly pension of ₹3,000 after attaining 60 years of age. 50% monthly contribution by subscriber matched by equal 50% co-contribution by the Central Government.",
+    "eligibilityRules": {
+      "minAge": 18,
+      "maxAge": 40,
+      "maxMonthlyIncomePaise": 1500000,
+      "requiresUnorganizedStatus": true,
+      "requiresBankAccount": true,
+      "allowedWorkerCategories": ["GIG_PLATFORM", "STREET_VENDOR", "CONSTRUCTION", "DOMESTIC_WORKER", "AGRICULTURAL", "OTHER_INFORMAL"]
+    },
+    "requiredDocuments": [
+      "Aadhaar Card",
+      "Savings Bank Account / Jan Dhan Account with auto-debit facility",
+      "Initial contribution amount in cash (₹55 to ₹200 depending on entry age)"
+    ],
+    "applicationSteps": [
+      "Visit the nearest Common Services Centre (CSC) or maandhan.in portal.",
+      "Provide Aadhaar and bank details for biometric/OTP authentication.",
+      "Auto-debit mandate is set up for monthly bank account deduction.",
+      "Receive Shram Yogi Pension Card with unique SYM number."
+    ],
+    "officialUrl": "https://maandhan.in",
+    "lastVerifiedDate": "2024-01-15",
+    "verificationStatus": "OFFICIALLY_VERIFIED"
+  },
+  {
+    "id": "pmsvanidhi_microcredit",
+    "name": "PM SVANidhi (Street Vendor's AtmaNirbhar Nidhi)",
+    "organization": "Ministry of Housing and Urban Affairs (MoHUA)",
+    "category": "Emergency Assistance",
+    "targetWorkerType": "Urban Street Vendors, Food Carts, Independent Informal Retailers",
+    "jurisdiction": "Central (Urban Areas Across India)",
+    "description": "Special micro-credit facility providing affordable collateral-free working capital to street vendors to restart and expand livelihoods.",
+    "potentialBenefit": "Initial collateral-free working capital loan of ₹10,000 (1st tranche), upgradable to ₹20,000 and ₹50,000 upon timely repayment. 7% per annum interest subsidy credited directly to bank account, plus up to ₹1,200 annual cash-back on digital transactions.",
+    "eligibilityRules": {
+      "minAge": 18,
+      "requiresBankAccount": true,
+      "allowedWorkerCategories": ["STREET_VENDOR", "OTHER_INFORMAL"]
+    },
+    "requiredDocuments": [
+      "Vending Certificate / Urban Local Body (ULB) Identity Card or Letter of Recommendation (LoR)",
+      "Aadhaar Card linked with mobile",
+      "Bank Account Statement or Passbook"
+    ],
+    "applicationSteps": [
+      "Check vending eligibility at pmsvanidhi.mohua.gov.in or contact Urban Local Body.",
+      "Submit digital loan application with preferred lending institution.",
+      "Complete e-KYC and digital mandate for subsidy crediting.",
+      "Loan disbursed directly to bank account."
+    ],
+    "officialUrl": "https://pmsvanidhi.mohua.gov.in",
+    "lastVerifiedDate": "2024-02-01",
+    "verificationStatus": "OFFICIALLY_VERIFIED"
+  },
+  {
+    "id": "pmjjby_life_insurance",
+    "name": "Pradhan Mantri Jeevan Jyoti Bima Yojana (PMJJBY)",
+    "organization": "Department of Financial Services, Ministry of Finance",
+    "category": "Insurance",
+    "targetWorkerType": "All individuals and workers with a bank account",
+    "jurisdiction": "Central (All India)",
+    "description": "Government-backed, low-cost term life insurance plan offering financial protection to informal workers' families.",
+    "potentialBenefit": "₹2,00,000 life insurance sum assured payable to nominee upon death of insured from any cause, for an annual premium of ₹436.",
+    "eligibilityRules": {
+      "minAge": 18,
+      "maxAge": 50,
+      "requiresBankAccount": true
+    },
+    "requiredDocuments": [
+      "Savings Bank Account Passbook",
+      "Aadhaar Card (KYC)",
+      "Nominee details and auto-debit consent form"
+    ],
+    "applicationSteps": [
+      "Log in to internet banking/mobile banking or visit your bank branch.",
+      "Submit the auto-debit consent form for PMJJBY enrollment.",
+      "Annual premium of ₹436 is auto-debited once per year between May 25 and May 31."
+    ],
+    "officialUrl": "https://financialservices.gov.in",
+    "lastVerifiedDate": "2024-01-15",
+    "verificationStatus": "OFFICIALLY_VERIFIED"
+  },
+  {
+    "id": "pmsby_accidental_insurance",
+    "name": "Pradhan Mantri Suraksha Bima Yojana (PMSBY)",
+    "organization": "Department of Financial Services, Ministry of Finance",
+    "category": "Insurance",
+    "targetWorkerType": "All workers with a savings bank account, delivery partners, drivers",
+    "jurisdiction": "Central (All India)",
+    "description": "Ultra-affordable micro-insurance for accidental death and permanent disability, tailored for high-mobility informal workers.",
+    "potentialBenefit": "₹2,00,000 for accidental death or total permanent disability; ₹1,00,000 for permanent partial disability, for an annual premium of only ₹20.",
+    "eligibilityRules": {
+      "minAge": 18,
+      "maxAge": 70,
+      "requiresBankAccount": true
+    },
+    "requiredDocuments": [
+      "Savings Bank Account with auto-debit mandate",
+      "Aadhaar Card",
+      "Nominee details"
+    ],
+    "applicationSteps": [
+      "Activate via mobile banking app, SMS service, or visit your bank branch.",
+      "Provide consent for annual auto-debit of ₹20.",
+      "Receive insurance certificate with policy number from your bank."
+    ],
+    "officialUrl": "https://financialservices.gov.in",
+    "lastVerifiedDate": "2024-01-15",
+    "verificationStatus": "OFFICIALLY_VERIFIED"
+  },
+  {
+    "id": "pmjay_ayushman_bharat",
+    "name": "Ayushman Bharat PM-JAY (Health Protection)",
+    "organization": "National Health Authority (NHA), Ministry of Health & Family Welfare",
+    "category": "Government support",
+    "targetWorkerType": "Low-income gig workers, driver families, construction and informal laborers",
+    "jurisdiction": "Central (All India across participating states)",
+    "description": "World's largest government-funded health assurance scheme providing catastrophic medical expense coverage for vulnerable families.",
+    "potentialBenefit": "Cashless hospitalization coverage of up to ₹5,00,000 per family per year across 27,000+ empaneled public and private hospitals for secondary and tertiary care.",
+    "eligibilityRules": {
+      "requiresUnorganizedStatus": true,
+      "allowedWorkerCategories": ["GIG_PLATFORM", "STREET_VENDOR", "CONSTRUCTION", "DOMESTIC_WORKER", "AGRICULTURAL", "OTHER_INFORMAL"]
+    },
+    "requiredDocuments": [
+      "Ration Card / PM-JAY Family ID",
+      "Aadhaar Card for each family member",
+      "Active mobile number"
+    ],
+    "applicationSteps": [
+      "Verify family inclusion at mera.pmjay.gov.in or call toll-free 14555.",
+      "Visit any empaneled hospital or nearest Common Service Centre (CSC).",
+      "Complete biometric verification with Pradhan Mantri Arogya Mitra (PMAM).",
+      "Receive Ayushman PVC Card with unique AB-PMJAY ID."
+    ],
+    "officialUrl": "https://pmjay.gov.in",
+    "lastVerifiedDate": "2024-02-10",
+    "verificationStatus": "OFFICIALLY_VERIFIED"
+  },
+  {
+    "id": "bocw_welfare_board",
+    "name": "Building & Other Construction Workers (BOCW) Welfare Fund",
+    "organization": "State BOCW Welfare Boards / Ministry of Labour & Employment",
+    "category": "Worker welfare",
+    "targetWorkerType": "Construction laborers, electricians, plumbers, painters, masonry workers",
+    "jurisdiction": "State-specific (All States & UTs)",
+    "description": "Statutory welfare fund financed by construction cess providing comprehensive social security, tools assistance, and educational support.",
+    "potentialBenefit": "Financial grants for safety equipment & toolkits (₹5,000–₹10,000), maternity assistance, accidental disability relief up to ₹4,00,000, and educational scholarships for children.",
+    "eligibilityRules": {
+      "minAge": 18,
+      "maxAge": 60,
+      "requiresUnorganizedStatus": true,
+      "requiresBankAccount": true,
+      "allowedWorkerCategories": ["CONSTRUCTION"]
+    },
+    "requiredDocuments": [
+      "90-day working certificate issued by employer, registered contractor, or trade union",
+      "Aadhaar Card",
+      "Bank Account details",
+      "Passport size photographs"
+    ],
+    "applicationSteps": [
+      "Apply online on your state's Labour Department BOCW portal or offline at district labour office.",
+      "Upload 90-day work certificate and identity proofs.",
+      "Pay annual nominal membership fee (₹20 to ₹50 depending on state).",
+      "Receive BOCW Smart Labour Card."
+    ],
+    "officialUrl": "https://labour.gov.in/bocw",
+    "lastVerifiedDate": "2024-01-20",
+    "verificationStatus": "OFFICIALLY_VERIFIED"
+  },
+  {
+    "id": "atal_pension_yojana",
+    "name": "Atal Pension Yojana (APY)",
+    "organization": "PFRDA / Ministry of Finance",
+    "category": "Pension",
+    "targetWorkerType": "Freelancers, self-employed, platform workers, shop assistants",
+    "jurisdiction": "Central (All India)",
+    "description": "Government-guaranteed pension scheme aimed primarily at workers in the unorganized sector to create an automatic retirement corpus.",
+    "potentialBenefit": "Fixed guaranteed monthly pension between ₹1,000 and ₹5,000 starting at age 60. Same pension amount payable to spouse upon death, with full corpus return to nominee.",
+    "eligibilityRules": {
+      "minAge": 18,
+      "maxAge": 40,
+      "requiresBankAccount": true
+    },
+    "requiredDocuments": [
+      "Active Savings Bank Account",
+      "Aadhaar Card",
+      "Nominee details and auto-debit authorization"
+    ],
+    "applicationSteps": [
+      "Approach bank branch where savings account is maintained or use netbanking APY module.",
+      "Select desired pension tier (₹1,000 to ₹5,000) and debit frequency (monthly, quarterly, half-yearly).",
+      "Receive Permanent Retirement Account Number (PRAN) acknowledgment."
+    ],
+    "officialUrl": "https://www.npscra.nsdl.co.in",
+    "lastVerifiedDate": "2024-01-15",
+    "verificationStatus": "OFFICIALLY_VERIFIED"
+  }
+]
