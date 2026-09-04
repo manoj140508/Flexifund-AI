@@ -226,7 +226,7 @@ export function analyzeExpenses(transactions: NormalizedTransaction[]): ExpenseA
       transfersPaise += tx.amount.paise;
     }
 
-    const cat = tx.category;
+    const cat: ExpenseCategory = catMap[tx.category] ? tx.category : 'UNCATEGORIZED';
     catMap[cat].totalPaise += tx.amount.paise;
     catMap[cat].count += 1;
     catMap[cat].ids.push(tx.id);

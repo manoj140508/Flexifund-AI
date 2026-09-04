@@ -21,7 +21,7 @@ export default function HelpPage() {
     },
     {
       q: 'What CSV file formats does the upload tool accept?',
-      a: 'We automatically detect Format A (Date, Description, Amount, Type), Format B (Date, Description, Debit, Credit), and Format C (Date, Particulars, Withdrawal, Deposit, Balance). You can download a standard template on the Upload page.',
+      a: 'We automatically detect standard transaction formats including Format A (Date, Description, Amount, Type), Format B (Date, Description, Debit, Credit), and Format C (Date, Particulars, Withdrawal, Deposit, Balance). Simply export your transaction statement directly from your bank or payment app.',
     },
     {
       q: 'Are government welfare matches guaranteed benefits?',

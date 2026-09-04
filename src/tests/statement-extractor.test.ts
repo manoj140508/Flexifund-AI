@@ -77,6 +77,42 @@ describe('Statement Extractor Unit Tests', () => {
       expect(petrolTx?.amountPaise).toBe('45000');
     });
 
+    it('handles diverse Indian statement formats and amount representations', () => {
+      const variedText = `
+        HDFC BANK LIMITED
+        Date Particulars Withdrawal Deposit Balance
+        15/07/2024 Swiggy Platform Earnings 25000.00 45000.00
+        16/07/2024 IOCL Petrol Station ₹ 1,250.50 43749.50
+        18/07/2024 Vehicle EMI AutoDebit 6500 37249.50
+        20/07/2024 Direct Client Transfer ₹25,000.00 62249.50
+        Closing Balance: ₹ 62,249.50
+      `;
+
+      const result = parseBankStatementText(variedText, 'PDF', 2);
+      expect(result.success).toBe(true);
+      expect(result.transactions.length).toBe(4);
+      expect(result.pagesProcessed).toBe(2);
+      expect(result.closingBalancePaise).toBe('6224950');
+
+      // Check ₹25,000.00 credit
+      const clientTransfer = result.transactions.find((t) => t.description.includes('Client Transfer'));
+      expect(clientTransfer).toBeDefined();
+      expect(clientTransfer?.type).toBe('CREDIT');
+      expect(clientTransfer?.amountPaise).toBe('2500000');
+
+      // Check ₹ 1,250.50 debit
+      const petrol = result.transactions.find((t) => t.description.includes('Petrol Station'));
+      expect(petrol).toBeDefined();
+      expect(petrol?.type).toBe('DEBIT');
+      expect(petrol?.amountPaise).toBe('125050');
+
+      // Check integer 6500 EMI debit
+      const emi = result.transactions.find((t) => t.description.includes('Vehicle EMI'));
+      expect(emi).toBeDefined();
+      expect(emi?.type).toBe('DEBIT');
+      expect(emi?.amountPaise).toBe('650000');
+    });
+
     it('fails safely with zero hallucination when text has no transaction rows', () => {
       const unreadableText = `
         Dear Customer,
@@ -89,6 +125,22 @@ describe('Statement Extractor Unit Tests', () => {
       expect(result.success).toBe(false);
       expect(result.transactions.length).toBe(0);
       expect(result.errorMessage).toContain("couldn't reliably read the transaction table");
+    });
+
+    it('handles image OCR text output with minor noise gracefully', () => {
+      const ocrText = `
+        05/09/2024 ZOMATO PAYOUT CR 8500.00
+        08/09/2024 SHELL PETROL DR 650.00
+        12/09/2024 GROCERY STORE DR 1200.00
+      `;
+
+      const result = parseBankStatementText(ocrText, 'IMAGE', 1);
+      expect(result.success).toBe(true);
+      expect(result.transactions.length).toBe(3);
+      expect(result.transactions[0].type).toBe('CREDIT');
+      expect(result.transactions[0].amountPaise).toBe('850000');
+      expect(result.transactions[1].type).toBe('DEBIT');
+      expect(result.transactions[1].amountPaise).toBe('65000');
     });
   });
 });

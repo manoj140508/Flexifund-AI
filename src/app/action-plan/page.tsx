@@ -3,150 +3,219 @@
 import React from 'react';
 import Link from 'next/link';
 import { useFinancialData } from '@/context/FinancialDataContext';
-import EmptyState from '@/components/EmptyState';
-import ExplainButton from '@/components/ExplainButton';
+import ExportPlanButton from '@/components/ExportPlanButton';
 
 export default function ActionPlanPage() {
   const { analysisResult } = useFinancialData();
 
   if (!analysisResult) {
     return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        <EmptyState
-          title="Your action plan will be generated after your financial analysis."
-          description="Upload your financial data to see prioritized next steps tailored to your income stability and expenses."
-          actionText="Upload financial data"
-          actionHref="/upload"
-        />
+      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-16 text-center">
+        <div className="bg-white dark:bg-[#111C2E] border border-[#D7E7F5] dark:border-[#2A3B52] rounded-3xl p-8 sm:p-12 shadow-sm space-y-6">
+          <div className="w-16 h-16 rounded-2xl bg-blue-50 dark:bg-blue-950/70 text-[#2563EB] dark:text-[#60A5FA] flex items-center justify-center text-3xl mx-auto font-bold">
+            🎯
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0F2747] dark:text-[#F8FAFC]">
+              Your next steps
+            </h1>
+            <p className="text-sm text-[#52657A] dark:text-[#CBD5E1]">
+              Upload your statement to get 3 personalized steps to keep your money safe.
+            </p>
+          </div>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+            <Link
+              href="/upload"
+              className="inline-flex items-center gap-2 px-8 py-3.5 rounded-xl bg-[#2563EB] text-white font-bold text-sm hover:bg-blue-600 transition-colors shadow-sm"
+            >
+              <span>Upload statement →</span>
+            </Link>
+            <ExportPlanButton variant="subtle" />
+          </div>
+        </div>
       </div>
     );
   }
 
-  const actions = analysisResult.prioritizedActions;
+  const exp = analysisResult.expenseAnalysis;
+  const capacity = analysisResult.savingsCapacity;
+  const opportunities = analysisResult.savingsOpportunities || [];
 
-  const formatINR = (paiseStr?: string | null) => {
-    if (!paiseStr) return '₹0.00';
-    const n = Number(paiseStr) / 100;
-    return `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const formatRupees = (paiseStr?: string | null | number) => {
+    if (!paiseStr) return '₹0';
+    const num = typeof paiseStr === 'number' ? paiseStr : Math.round(Number(paiseStr) / 100);
+    return `₹${num.toLocaleString('en-IN')}`;
   };
 
+  const starterTarget = formatRupees(capacity.conservativeMonthlyReference.paise);
+  const dailyBurn = Math.max(1, Math.round(Number(exp.dailyEssentialBurnRate.paise) / 100));
+  const target30Days = formatRupees(dailyBurn * 30);
+
+  const totalPotentialPaise = opportunities.reduce(
+    (acc, opp) => acc + BigInt(opp.potentialMonthlySaving?.paise || '0'),
+    0n
+  );
+  const totalPotentialDisplay = formatRupees(totalPotentialPaise.toString());
+
+  const topOpp = opportunities[0];
+
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-[#D7E7F5] dark:border-[#2A3B52]">
-        <div>
-          <span className="text-xs font-bold uppercase tracking-widest text-[#059669] dark:text-[#34D399]">
-            Personalized Guidance
-          </span>
-          <h1 className="text-3xl font-extrabold text-[#0F2747] dark:text-[#F8FAFC] tracking-tight mt-1">
-            Prioritized Financial Action Plan
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 space-y-8">
+      {/* Title */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="space-y-1">
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0F2747] dark:text-[#F8FAFC] tracking-tight">
+            Your Next 3 Steps
           </h1>
-          <p className="text-[#52657A] dark:text-[#B8C5D6] text-sm mt-1 max-w-2xl">
-            Ranked using multi-factor scoring (Urgency 35%, Impact 30%, Effort 20%, Evidence 15%). <strong>Only recommendations backed by your actual data are displayed.</strong>
+          <p className="text-xs sm:text-sm text-[#52657A] dark:text-[#CBD5E1]">
+            Simple, realistic things you can do right now to protect your earnings.
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <Link
-            href="/dashboard"
-            className="px-4 py-2 rounded-lg border border-[#D7E7F5] dark:border-[#2A3B52] text-xs font-semibold text-[#0F2747] dark:text-[#F8FAFC] hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-xs"
-          >
-            ← Back to Overview
-          </Link>
-          <Link
-            href="/export"
-            className="px-4 py-2 rounded-lg bg-[#2563EB] text-white text-xs font-bold hover:bg-blue-600 transition-colors shadow-xs flex items-center gap-1.5"
-          >
-            <span>Export Report</span>
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-            </svg>
-          </Link>
-        </div>
+        <ExportPlanButton />
       </div>
 
-      {/* Top Focus Banner */}
-      <div className="bg-[#0F2747] dark:bg-[#17243A] text-white rounded-3xl p-6 sm:p-8 shadow-sm space-y-2">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="w-2 h-2 rounded-full bg-[#34D399]"></span>
-          <span className="text-xs font-bold uppercase tracking-wider text-[#34D399]">Primary Focus</span>
-        </div>
-        <h2 className="text-xl font-bold tracking-tight">Focus on Your Top Actions First</h2>
-        <p className="text-slate-300 text-xs max-w-2xl leading-relaxed">
-          Taking small, decisive steps on the highest-priority recommendations builds resilience faster than trying to overhaul all spending habits at once.
-        </p>
-      </div>
-
-      {/* Action List */}
+      {/* 3 Step Cards */}
       <div className="space-y-4">
-        {actions.map((action, idx) => (
-          <div
-            key={action.id}
-            className="bg-white dark:bg-[#111C2E] border border-[#D7E7F5] dark:border-[#2A3B52] rounded-3xl p-6 shadow-sm space-y-3"
-          >
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div className="flex items-center gap-2.5">
-                <span className="w-7 h-7 rounded-xl bg-[#E0F2FE] dark:bg-blue-950 text-[#2563EB] dark:text-[#60A5FA] flex items-center justify-center font-bold text-xs">
-                  {idx + 1}
-                </span>
-                <h3 className="font-bold text-base text-[#0F2747] dark:text-[#F8FAFC]">{action.title}</h3>
-              </div>
-              <div className="flex items-center gap-2">
-                <span
-                  className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                    action.urgency === 'CRITICAL'
-                      ? 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-300'
-                      : action.urgency === 'HIGH'
-                      ? 'bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300'
-                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
-                  }`}
-                >
-                  {action.urgency.replace(/_/g, ' ')}
-                </span>
-                <span className="text-[10px] text-[#52657A] dark:text-[#B8C5D6] font-semibold">
-                  {action.effort} Effort
-                </span>
-              </div>
+        {/* Step 1: Set aside money */}
+        <div className="bg-white dark:bg-[#111C2E] border border-[#D7E7F5] dark:border-[#2A3B52] rounded-3xl p-6 sm:p-8 shadow-sm space-y-4">
+          <div className="flex items-center gap-3">
+            <span className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/60 text-[#2563EB] dark:text-[#60A5FA] flex items-center justify-center font-extrabold text-sm">
+              1
+            </span>
+            <h2 className="text-lg sm:text-xl font-bold text-[#0F2747] dark:text-[#F8FAFC] flex items-center gap-2">
+              <span>💰</span> Set aside {starterTarget} when you can
+            </h2>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+            <div className="space-y-1">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-[#52657A] dark:text-[#94A3B8] block">
+                WHAT TO DO
+              </span>
+              <p className="text-xs sm:text-sm text-[#0F2747] dark:text-[#CBD5E1]">
+                Move a small amount into a separate bank account or liquid fund during your better earning weeks.
+              </p>
             </div>
 
-            <p className="text-xs text-[#52657A] dark:text-[#B8C5D6] leading-relaxed pl-0 sm:pl-9">
-              {action.description}
-            </p>
-
-            {action.rankingJustification && (
-              <div className="pl-0 sm:pl-9 pt-1">
-                <p className="text-[11px] text-slate-500 font-mono">
-                  Why prioritized: {action.rankingJustification}
-                </p>
-              </div>
-            )}
-
-            <div className="pl-0 sm:pl-9 pt-3 flex items-center justify-between border-t border-slate-100 dark:border-slate-800 text-xs">
-              <span className="font-semibold text-[#059669] dark:text-[#34D399]">
-                {action.potentialMonthlySaving
-                  ? `Estimated monthly recovery: ${formatINR(action.potentialMonthlySaving.paise)}/mo`
-                  : 'Impact: Bolsters runway during lean weeks'}
+            <div className="space-y-1">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-[#52657A] dark:text-[#94A3B8] block">
+                WHY
               </span>
-              <div className="flex items-center gap-3">
-                {action.actionUrlOrPrompt && action.actionUrlOrPrompt.startsWith('/') && (
-                  <Link
-                    href={action.actionUrlOrPrompt}
-                    className="text-xs font-bold text-[#2563EB] dark:text-[#60A5FA] hover:underline"
-                  >
-                    Open Tool →
-                  </Link>
-                )}
-                <ExplainButton
-                  topic="PRIORITIZED_ACTIONS"
-                  contextEvidence={{
-                    metricName: action.title,
-                    observedValue: action.urgency,
-                    explanation: action.description,
-                  }}
-                />
-              </div>
+              <p className="text-xs sm:text-sm text-[#0F2747] dark:text-[#CBD5E1]">
+                Your income changes from month to month. A small buffer prevents needing high-interest loans.
+              </p>
+            </div>
+
+            <div className="space-y-1">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-[#52657A] dark:text-[#94A3B8] block">
+                POSSIBLE IMPACT
+              </span>
+              <p className="text-xs sm:text-sm font-semibold text-[#059669] dark:text-[#34D399]">
+                Cushions you for slow weeks without stress.
+              </p>
             </div>
           </div>
-        ))}
+        </div>
+
+        {/* Step 2: Review spending */}
+        <div className="bg-white dark:bg-[#111C2E] border border-[#D7E7F5] dark:border-[#2A3B52] rounded-3xl p-6 sm:p-8 shadow-sm space-y-4">
+          <div className="flex items-center gap-3">
+            <span className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/60 text-[#2563EB] dark:text-[#60A5FA] flex items-center justify-center font-extrabold text-sm">
+              2
+            </span>
+            <h2 className="text-lg sm:text-xl font-bold text-[#0F2747] dark:text-[#F8FAFC] flex items-center gap-2">
+              <span>🔍</span> Review your {topOpp ? topOpp.title.toLowerCase() : 'optional spending'}
+            </h2>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+            <div className="space-y-1">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-[#52657A] dark:text-[#94A3B8] block">
+                WHAT TO DO
+              </span>
+              <p className="text-xs sm:text-sm text-[#0F2747] dark:text-[#CBD5E1]">
+                {topOpp ? topOpp.recommendedAction : 'Look at your recent dining out and food orders to see if you can reduce 1–2 orders a week.'}
+              </p>
+            </div>
+
+            <div className="space-y-1">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-[#52657A] dark:text-[#94A3B8] block">
+                WHY
+              </span>
+              <p className="text-xs sm:text-sm text-[#0F2747] dark:text-[#CBD5E1]">
+                Small frequent charges quietly add up over 30 days without noticing.
+              </p>
+            </div>
+
+            <div className="space-y-1">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-[#52657A] dark:text-[#94A3B8] block">
+                POSSIBLE IMPACT
+              </span>
+              <p className="text-xs sm:text-sm font-semibold text-[#059669] dark:text-[#34D399]">
+                About {totalPotentialDisplay} / month in saved cash.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Step 3: Safety cushion */}
+        <div className="bg-white dark:bg-[#111C2E] border border-[#D7E7F5] dark:border-[#2A3B52] rounded-3xl p-6 sm:p-8 shadow-sm space-y-4">
+          <div className="flex items-center gap-3">
+            <span className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/60 text-[#2563EB] dark:text-[#60A5FA] flex items-center justify-center font-extrabold text-sm">
+              3
+            </span>
+            <h2 className="text-lg sm:text-xl font-bold text-[#0F2747] dark:text-[#F8FAFC] flex items-center gap-2">
+              <span>🛡️</span> Build toward a 30-day safety cushion ({target30Days})
+            </h2>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+            <div className="space-y-1">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-[#52657A] dark:text-[#94A3B8] block">
+                WHAT TO DO
+              </span>
+              <p className="text-xs sm:text-sm text-[#0F2747] dark:text-[#CBD5E1]">
+                Direct part of your saved money toward reaching {target30Days} in emergency cash.
+              </p>
+            </div>
+
+            <div className="space-y-1">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-[#52657A] dark:text-[#94A3B8] block">
+                WHY
+              </span>
+              <p className="text-xs sm:text-sm text-[#0F2747] dark:text-[#CBD5E1]">
+                Covers a full month of food, rent, and bike petrol if you are sick or work slows down.
+              </p>
+            </div>
+
+            <div className="space-y-1">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-[#52657A] dark:text-[#94A3B8] block">
+                POSSIBLE IMPACT
+              </span>
+              <p className="text-xs sm:text-sm font-semibold text-[#059669] dark:text-[#34D399]">
+                30 full days of living security without borrowing.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Quick Link to Support & Benefits */}
+      <div className="bg-[#F8FAFC] dark:bg-[#17243A] rounded-2xl p-5 border border-[#E2E8F0] dark:border-[#26354D] flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="space-y-0.5">
+          <span className="text-xs font-bold text-[#0F2747] dark:text-[#F8FAFC]">
+            Looking for extra worker benefits?
+          </span>
+          <p className="text-xs text-[#52657A] dark:text-[#CBD5E1]">
+            Check government insurance, accident cover, and pensions matched to your work.
+          </p>
+        </div>
+        <Link
+          href="/opportunities"
+          className="px-4 py-2 rounded-xl bg-[#2563EB] text-white text-xs font-bold hover:bg-blue-600 transition-colors shadow-xs shrink-0"
+        >
+          Check support programs →
+        </Link>
       </div>
     </div>
   );

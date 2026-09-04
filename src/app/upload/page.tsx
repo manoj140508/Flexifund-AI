@@ -3,98 +3,160 @@
 import React, { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useFinancialData } from '@/context/FinancialDataContext';
-import { parseTransactionCSV } from '@/lib/csv-parser';
 
-type UploadTab = 'CSV' | 'PDF' | 'IMAGE';
+type StatementTab = 'IMAGE' | 'PDF' | 'CSV';
 
 export default function UploadPage() {
   const router = useRouter();
-  const { analyzeCSV, extractStatement, isLoading, error } = useFinancialData();
+  const { analyzeCSV, extractStatement, isLoading } = useFinancialData();
 
-  const [activeTab, setActiveTab] = useState<UploadTab>('CSV');
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [dragActive, setDragActive] = useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState<StatementTab>('IMAGE');
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [isDragOver, setIsDragOver] = useState(false);
   const [extractionError, setExtractionError] = useState<string | null>(null);
-  const [csvPreview, setCsvPreview] = useState<{
-    validCount: number;
-    rejectedCount: number;
-    previewRows: any[];
-  } | null>(null);
+  const [uploadStep, setUploadStep] = useState<number>(0);
+  const [stepLabel, setStepLabel] = useState<string>('');
+  const [devDebug, setDevDebug] = useState<any>(null);
+  const [showDevDebug, setShowDevDebug] = useState<boolean>(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleTabChange = (tab: UploadTab) => {
+  const handleTabChange = (tab: StatementTab) => {
     setActiveTab(tab);
-    setSelectedFile(null);
-    setCsvPreview(null);
+    setSelectedFiles([]);
     setExtractionError(null);
+    setDevDebug(null);
+    setUploadStep(0);
   };
 
-  const handleDrag = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === 'dragenter' || e.type === 'dragover') {
-      setDragActive(true);
-    } else if (e.type === 'dragleave') {
-      setDragActive(false);
+  const handleFileSelection = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setExtractionError(null);
+    setDevDebug(null);
+
+    const validFiles: File[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      const name = f.name.toLowerCase();
+
+      if (activeTab === 'CSV') {
+        if (name.endsWith('.csv') || f.type === 'text/csv') {
+          validFiles.push(f);
+        } else {
+          setExtractionError('Please upload a valid .csv bank statement file.');
+          return;
+        }
+      } else if (activeTab === 'PDF') {
+        if (name.endsWith('.pdf') || f.type === 'application/pdf') {
+          validFiles.push(f);
+        } else {
+          setExtractionError('Please upload a valid .pdf bank statement file.');
+          return;
+        }
+      } else {
+        // IMAGE / GPay Screenshot
+        if (/\.(png|jpe?g|webp|bmp)$/i.test(name) || f.type.startsWith('image/')) {
+          validFiles.push(f);
+        } else {
+          setExtractionError('Please upload a screenshot image (PNG, JPG, or WEBP).');
+          return;
+        }
+      }
+    }
+
+    if (validFiles.length > 0) {
+      if (activeTab === 'IMAGE') {
+        // Support multi-screenshot upload
+        setSelectedFiles(validFiles);
+      } else {
+        setSelectedFiles([validFiles[0]]);
+      }
     }
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      processSelectedFile(e.dataTransfer.files[0]);
-    }
+    setIsDragOver(false);
+    handleFileSelection(e.dataTransfer.files);
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      processSelectedFile(e.target.files[0]);
-    }
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
   };
 
-  const processSelectedFile = async (file: File) => {
-    setSelectedFile(file);
+  const handleDragLeave = () => {
+    setIsDragOver(false);
+  };
+
+  const resetUpload = () => {
+    setSelectedFiles([]);
     setExtractionError(null);
-
-    // If CSV, do instant client-side preview
-    if (activeTab === 'CSV' || file.name.toLowerCase().endsWith('.csv')) {
-      try {
-        const text = await file.text();
-        const result = parseTransactionCSV(text, file.name);
-        setCsvPreview({
-          validCount: result.validTransactions.length,
-          rejectedCount: result.rejectedRows.length,
-          previewRows: result.validTransactions.slice(0, 5),
-        });
-      } catch (err: any) {
-        setExtractionError('Failed to read CSV preview: ' + err.message);
-      }
+    setDevDebug(null);
+    setUploadStep(0);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   };
 
   const handleSubmit = async () => {
-    if (!selectedFile) return;
+    if (selectedFiles.length === 0) return;
+    setExtractionError(null);
+    setDevDebug(null);
 
-    if (activeTab === 'CSV') {
-      const success = await analyzeCSV(selectedFile, selectedFile.name);
-      if (success) {
-        router.push('/dashboard');
-      }
-    } else {
-      // PDF or Image extraction -> goes to /review
-      try {
-        setExtractionError(null);
-        await extractStatement(selectedFile, activeTab);
+    try {
+      if (activeTab === 'CSV') {
+        setUploadStep(1);
+        setStepLabel('Reading CSV statement…');
+        const success = await analyzeCSV(selectedFiles[0], selectedFiles[0].name);
+        if (success) {
+          setUploadStep(4);
+          setStepLabel('Ready for review');
+          router.push('/dashboard');
+        } else {
+          setUploadStep(0);
+        }
+      } else if (activeTab === 'PDF') {
+        setUploadStep(1);
+        setStepLabel('Reading PDF statement…');
+        setUploadStep(2);
+        setStepLabel('Extracting visible transactions…');
+        await extractStatement(selectedFiles[0], 'PDF');
+        setUploadStep(4);
+        setStepLabel('Ready for review');
         router.push('/review');
-      } catch (err: any) {
-        setExtractionError(
-          err.message ||
-            "We couldn't reliably read the transaction table from this file. Please ensure it is unencrypted and clearly readable."
-        );
+      } else {
+        // IMAGE / GPay Screenshot(s)
+        setUploadStep(1);
+        setStepLabel('Reading image…');
+
+        await new Promise((r) => setTimeout(r, 80));
+
+        setUploadStep(2);
+        setStepLabel('Extracting visible transactions…');
+
+        const result = await extractStatement(selectedFiles, 'IMAGE');
+
+        setUploadStep(3);
+        setStepLabel('Checking transaction details…');
+
+        if (result && result.transactions && result.transactions.length > 0) {
+          setUploadStep(4);
+          setStepLabel('Ready for review');
+          router.push('/review');
+        } else {
+          throw new Error("We couldn't read the transactions in this screenshot. Try a clearer GPay screenshot with transaction dates, names and amounts visible.");
+        }
       }
+    } catch (err: any) {
+      setExtractionError(
+        err?.message || "We couldn't read the transactions in this screenshot. Try a clearer GPay screenshot with transaction dates, names and amounts visible."
+      );
+      if (err?.devDebug) {
+        setDevDebug(err.devDebug);
+      }
+    } finally {
+      setUploadStep(0);
     }
   };
 
@@ -105,290 +167,263 @@ export default function UploadPage() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 py-12 space-y-10">
-      {/* Header */}
-      <div className="text-center max-w-2xl mx-auto space-y-3">
-        <span className="text-xs font-bold uppercase tracking-wider text-[#059669] dark:text-[#34D399]">
-          Financial Statement Ingestion
-        </span>
+    <div className="max-w-2xl mx-auto px-4 sm:px-6 py-10 sm:py-16 space-y-8">
+      {/* 1. Header (Requirement 20) */}
+      <div className="text-center space-y-2">
         <h1 className="text-3xl sm:text-4xl font-extrabold text-[#0F2747] dark:text-[#F8FAFC] tracking-tight">
-          Upload your financial data
+          Upload your financial activity
         </h1>
-        <p className="text-sm text-[#52657A] dark:text-[#B8C5D6] leading-relaxed">
-          Use a CSV, bank statement PDF, or a screenshot of your statement. We process statements without requiring your bank account login.
+        <p className="text-sm sm:text-base text-[#52657A] dark:text-[#CBD5E1] max-w-md mx-auto">
+          Add your GPay transaction history screenshots or bank statements to build your personalized resilience plan.
         </p>
       </div>
 
-      {/* Zero Credential Guarantee Alert */}
-      <div className="p-4 rounded-2xl bg-white dark:bg-[#111C2E] border border-[#D7E7F5] dark:border-[#2A3B52] shadow-sm flex items-start gap-3.5">
-        <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 flex items-center justify-center font-bold text-sm shrink-0">
-          🛡️
-        </div>
-        <div className="text-xs text-[#52657A] dark:text-[#B8C5D6] space-y-0.5">
-          <strong className="text-[#0F2747] dark:text-[#F8FAFC] block font-semibold">
-            Security Guarantee:
-          </strong>
-          <p>
-            Never upload your bank password, OTP, UPI PIN, CVV or card PIN. We only need the transaction statement itself to calculate your financial resilience.
-          </p>
-        </div>
+      {/* 2. Format Selector Tabs */}
+      <div className="flex justify-center gap-2 p-1.5 bg-[#E2E8F0]/60 dark:bg-[#1A283E] rounded-2xl max-w-md mx-auto">
+        <button
+          type="button"
+          onClick={() => handleTabChange('IMAGE')}
+          className={`flex-1 py-2 px-3 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+            activeTab === 'IMAGE'
+              ? 'bg-white dark:bg-[#111C2E] text-[#2563EB] dark:text-[#60A5FA] shadow-xs'
+              : 'text-[#52657A] dark:text-[#CBD5E1]'
+          }`}
+        >
+          GPay / Screenshot
+        </button>
+        <button
+          type="button"
+          onClick={() => handleTabChange('PDF')}
+          className={`flex-1 py-2 px-3 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+            activeTab === 'PDF'
+              ? 'bg-white dark:bg-[#111C2E] text-[#2563EB] dark:text-[#60A5FA] shadow-xs'
+              : 'text-[#52657A] dark:text-[#CBD5E1]'
+          }`}
+        >
+          PDF statement
+        </button>
+        <button
+          type="button"
+          onClick={() => handleTabChange('CSV')}
+          className={`flex-1 py-2 px-3 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+            activeTab === 'CSV'
+              ? 'bg-white dark:bg-[#111C2E] text-[#2563EB] dark:text-[#60A5FA] shadow-xs'
+              : 'text-[#52657A] dark:text-[#CBD5E1]'
+          }`}
+        >
+          CSV file
+        </button>
       </div>
 
-      {/* Main Upload Card */}
-      <div className="bg-white dark:bg-[#111C2E] border border-[#D7E7F5] dark:border-[#2A3B52] rounded-3xl p-6 sm:p-8 shadow-sm space-y-8">
-        {/* Three Option Tabs */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {/* Tab 1: CSV */}
-          <button
-            type="button"
-            onClick={() => handleTabChange('CSV')}
-            className={`p-4 rounded-2xl border text-left transition-all ${
-              activeTab === 'CSV'
-                ? 'border-[#2563EB] dark:border-[#60A5FA] bg-[#E0F2FE]/40 dark:bg-blue-950/40 ring-2 ring-blue-500/10'
-                : 'border-[#D7E7F5] dark:border-[#2A3B52] hover:bg-slate-50 dark:hover:bg-slate-800/40'
-            }`}
-          >
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-lg">📊</span>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200">
-                Fastest
-              </span>
-            </div>
-            <h3 className="text-sm font-bold text-[#0F2747] dark:text-[#F8FAFC]">Upload CSV</h3>
-            <p className="text-xs text-[#52657A] dark:text-[#B8C5D6] mt-1">Best for structured transaction data</p>
-          </button>
+      {/* 3. Supported Formats Badge List */}
+      <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-[#52657A] dark:text-[#94A3B8]">
+        <span className="font-semibold text-slate-700 dark:text-slate-300">Supported:</span>
+        <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800">GPay / payment screenshots</span>
+        <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800">Bank statement PDF</span>
+        <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800">CSV</span>
+        <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800">Other statement images</span>
+      </div>
 
-          {/* Tab 2: PDF */}
-          <button
-            type="button"
-            onClick={() => handleTabChange('PDF')}
-            className={`p-4 rounded-2xl border text-left transition-all ${
-              activeTab === 'PDF'
-                ? 'border-[#2563EB] dark:border-[#60A5FA] bg-[#E0F2FE]/40 dark:bg-blue-950/40 ring-2 ring-blue-500/10'
-                : 'border-[#D7E7F5] dark:border-[#2A3B52] hover:bg-slate-50 dark:hover:bg-slate-800/40'
-            }`}
-          >
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-lg">📄</span>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                Multi-Page
-              </span>
-            </div>
-            <h3 className="text-sm font-bold text-[#0F2747] dark:text-[#F8FAFC]">Upload PDF</h3>
-            <p className="text-xs text-[#52657A] dark:text-[#B8C5D6] mt-1">Upload a bank statement PDF</p>
-          </button>
-
-          {/* Tab 3: Screenshot / Image */}
-          <button
-            type="button"
-            onClick={() => handleTabChange('IMAGE')}
-            className={`p-4 rounded-2xl border text-left transition-all ${
-              activeTab === 'IMAGE'
-                ? 'border-[#2563EB] dark:border-[#60A5FA] bg-[#E0F2FE]/40 dark:bg-blue-950/40 ring-2 ring-blue-500/10'
-                : 'border-[#D7E7F5] dark:border-[#2A3B52] hover:bg-slate-50 dark:hover:bg-slate-800/40'
-            }`}
-          >
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-lg">🖼️</span>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
-                OCR Auto
-              </span>
-            </div>
-            <h3 className="text-sm font-bold text-[#0F2747] dark:text-[#F8FAFC]">Upload Screenshot</h3>
-            <p className="text-xs text-[#52657A] dark:text-[#B8C5D6] mt-1">Screenshot or photo of statement</p>
-          </button>
-        </div>
-
-        {/* File Dropzone */}
+      {/* 4. Dropzone Card */}
+      <div className="bg-white dark:bg-[#111C2E] border border-[#D7E7F5] dark:border-[#2A3B52] rounded-3xl p-6 sm:p-8 shadow-sm space-y-6">
         <div
-          onDragEnter={handleDrag}
-          onDragLeave={handleDrag}
-          onDragOver={handleDrag}
           onDrop={handleDrop}
-          className={`border-2 border-dashed rounded-3xl p-8 sm:p-12 text-center transition-all ${
-            dragActive
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onClick={() => fileInputRef.current?.click()}
+          className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all ${
+            isDragOver
               ? 'border-[#2563EB] bg-blue-50/50 dark:bg-blue-950/20'
-              : selectedFile
-              ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50/20 dark:bg-emerald-950/10'
-              : 'border-[#D7E7F5] dark:border-[#2A3B52] hover:border-slate-400 bg-[#F5FAFF]/50 dark:bg-[#17243A]/30'
+              : 'border-[#CBD5E1] dark:border-[#334155] hover:border-[#2563EB]/70 hover:bg-slate-50/50 dark:hover:bg-slate-800/30'
           }`}
         >
           <input
             ref={fileInputRef}
             type="file"
             accept={getAcceptTypes()}
-            onChange={handleFileChange}
+            multiple={activeTab === 'IMAGE'}
+            onChange={(e) => handleFileSelection(e.target.files)}
             className="hidden"
           />
 
-          {!selectedFile ? (
-            <div className="space-y-4">
-              <div className="w-14 h-14 rounded-2xl bg-white dark:bg-[#17243A] border border-[#D7E7F5] dark:border-[#2A3B52] text-slate-700 dark:text-slate-300 flex items-center justify-center mx-auto shadow-xs text-2xl">
-                {activeTab === 'CSV' ? '📊' : activeTab === 'PDF' ? '📄' : '📷'}
-              </div>
+          <div className="space-y-3">
+            <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-950/60 text-[#2563EB] dark:text-[#60A5FA] flex items-center justify-center mx-auto text-xl shadow-xs">
+              {activeTab === 'IMAGE' ? '📱' : activeTab === 'PDF' ? '📄' : '📊'}
+            </div>
+            <div>
+              <p className="text-sm font-bold text-[#0F2747] dark:text-[#F8FAFC]">
+                {selectedFiles.length > 0
+                  ? `${selectedFiles.length} file(s) selected`
+                  : activeTab === 'IMAGE'
+                  ? 'Click or drag GPay screenshots here'
+                  : `Click or drag your ${activeTab} file here`}
+              </p>
+              <p className="text-xs text-[#52657A] dark:text-[#94A3B8] mt-1">
+                {activeTab === 'IMAGE'
+                  ? 'PNG, JPG, or WEBP from Google Pay, PhonePe, Paytm (you can select multiple)'
+                  : `Max size 15MB`}
+              </p>
+            </div>
+          </div>
+        </div>
 
+        {/* Selected Files List */}
+        {selectedFiles.length > 0 && (
+          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-[#17243A] border border-[#D7E7F5] dark:border-[#2A3B52] space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Selected for Scan ({selectedFiles.length})
+              </span>
+              <button
+                type="button"
+                onClick={resetUpload}
+                className="text-xs text-rose-600 dark:text-rose-400 font-semibold hover:underline"
+              >
+                Clear all
+              </button>
+            </div>
+            <div className="max-h-32 overflow-y-auto divide-y divide-slate-200 dark:divide-slate-800 text-xs">
+              {selectedFiles.map((f, i) => (
+                <div key={i} className="py-1.5 flex items-center justify-between">
+                  <span className="truncate max-w-[280px] font-medium text-[#0F2747] dark:text-[#F8FAFC]">
+                    {f.name}
+                  </span>
+                  <span className="text-slate-400 font-mono text-[11px]">
+                    {(f.size / 1024).toFixed(1)} KB
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Dynamic Progress Indicator during extraction */}
+        {(isLoading || uploadStep > 0) && (
+          <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 space-y-2">
+            <div className="flex items-center justify-between text-xs font-semibold text-[#2563EB] dark:text-[#60A5FA]">
+              <span className="flex items-center gap-2">
+                <span className="w-3.5 h-3.5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></span>
+                {stepLabel || 'Processing statement…'}
+              </span>
+              <span>Step {Math.max(1, uploadStep)} of 4</span>
+            </div>
+            <div className="w-full h-1.5 bg-blue-100 dark:bg-blue-900 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-blue-600 rounded-full transition-all duration-300"
+                style={{ width: `${Math.min(100, Math.max(15, uploadStep * 25))}%` }}
+              ></div>
+            </div>
+          </div>
+        )}
+
+        {/* Error Message with Quality Context (Requirement 15, 16, 18) */}
+        {extractionError && (
+          <div className="p-5 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 space-y-3">
+            <div className="flex items-start gap-2.5">
+              <span className="text-base shrink-0">⚠️</span>
               <div>
-                <p className="text-sm font-bold text-[#0F2747] dark:text-[#F8FAFC]">
-                  Drag and drop your {activeTab === 'CSV' ? 'CSV file' : activeTab === 'PDF' ? 'bank statement PDF' : 'statement screenshot'}
+                <p className="text-xs font-bold text-rose-900 dark:text-rose-200">
+                  {extractionError}
                 </p>
-                <p className="text-xs text-[#52657A] dark:text-[#B8C5D6] mt-1">
-                  Supported formats: {activeTab === 'CSV' ? '.csv (up to 5MB)' : activeTab === 'PDF' ? '.pdf (up to 15MB)' : '.png, .jpg, .jpeg, .webp (up to 10MB)'}
+                <p className="text-[11px] text-rose-700 dark:text-rose-300 mt-1">
+                  Try uploading a clearer screenshot of your GPay transaction history or individual payment details.
                 </p>
-              </div>
-
-              <div className="flex items-center justify-center pt-2">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="px-8 py-3 rounded-xl bg-[#2563EB] text-white text-xs sm:text-sm font-bold hover:bg-blue-600 transition-colors shadow-sm"
-                >
-                  Browse Files
-                </button>
               </div>
             </div>
-          ) : (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between p-4 rounded-2xl bg-white dark:bg-[#111C2E] border border-[#D7E7F5] dark:border-[#2A3B52] text-left">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 flex items-center justify-center font-bold text-xs uppercase">
-                    {activeTab}
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-sm text-[#0F2747] dark:text-[#F8FAFC] truncate max-w-xs sm:max-w-md">
-                      {selectedFile.name}
-                    </h4>
-                    <p className="text-xs text-[#52657A] dark:text-[#B8C5D6]">
-                      {(selectedFile.size / 1024).toFixed(1)} KB • Ready to process
-                    </p>
-                  </div>
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setExtractionError(null);
+                  setDevDebug(null);
+                  fileInputRef.current?.click();
+                }}
+                className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-colors shadow-xs"
+              >
+                Try another image
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setExtractionError(null);
+                  setDevDebug(null);
+                  resetUpload();
+                }}
+                className="px-4 py-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 transition-colors"
+              >
+                Back to upload
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Development-Only Raw OCR Inspection Drawer (Requirement 2) */}
+        {devDebug && process.env.NODE_ENV === 'development' && (
+          <div className="p-4 rounded-2xl bg-slate-900 text-slate-100 font-mono text-xs space-y-3 shadow-md border border-slate-700">
+            <div
+              className="flex items-center justify-between cursor-pointer select-none"
+              onClick={() => setShowDevDebug(!showDevDebug)}
+            >
+              <span className="text-amber-400 font-bold flex items-center gap-1.5">
+                <span>🛠️ Dev OCR Debugger</span>
+                <span className="text-[10px] text-slate-400 font-normal">(What OCR Read vs Parser Result)</span>
+              </span>
+              <span className="text-xs text-blue-400 hover:underline">
+                {showDevDebug ? 'Hide Debugger ▲' : 'Inspect Raw OCR Stream ▼'}
+              </span>
+            </div>
+
+            {showDevDebug && (
+              <div className="space-y-3 pt-3 border-t border-slate-800">
+                {devDebug.imageMeta && (
+                  <p className="text-[11px] text-slate-400">
+                    Image dimensions: {devDebug.imageMeta.width}×{devDebug.imageMeta.height} ({devDebug.imageMeta.format})
+                  </p>
+                )}
+                <div>
+                  <p className="text-[10px] text-slate-400 uppercase font-bold mb-1">
+                    Raw OCR Text ({devDebug.ocrText?.length || 0} characters):
+                  </p>
+                  <pre className="p-3 bg-black/60 rounded-xl text-[11px] text-slate-200 max-h-36 overflow-y-auto whitespace-pre-wrap font-mono border border-slate-800">
+                    {devDebug.ocrText || '(No text read from image)'}
+                  </pre>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedFile(null);
-                    setCsvPreview(null);
-                    setExtractionError(null);
-                  }}
-                  className="text-xs font-semibold text-red-600 dark:text-red-400 hover:underline px-2 py-1"
-                >
-                  Remove
-                </button>
-              </div>
-
-              {/* Instant CSV Preview if CSV */}
-              {csvPreview && (
-                <div className="text-left space-y-2 p-4 rounded-xl bg-[#F5FAFF] dark:bg-[#17243A] border border-[#D7E7F5] dark:border-[#2A3B52]">
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="font-bold text-[#0F2747] dark:text-[#F8FAFC]">
-                      Transactions Preview ({csvPreview.validCount} valid rows)
-                    </span>
-                    {csvPreview.rejectedCount > 0 && (
-                      <span className="text-amber-700 dark:text-amber-400 font-semibold">
-                        {csvPreview.rejectedCount} quarantined
-                      </span>
-                    )}
-                  </div>
-                  <div className="divide-y divide-slate-200 dark:divide-slate-700 text-xs">
-                    {csvPreview.previewRows.map((r, i) => (
-                      <div key={i} className="py-1 flex justify-between">
-                        <span className="text-slate-600 dark:text-slate-300">{r.date} — {r.description}</span>
-                        <span className="font-mono font-bold text-[#0F2747] dark:text-[#F8FAFC]">
-                          ₹{(Number(r.amount.paise) / 100).toFixed(2)}
-                        </span>
+                <div>
+                  <p className="text-[10px] text-slate-400 uppercase font-bold mb-1">
+                    Detected Spatial Blocks ({devDebug.detectedBlocks?.length || 0}):
+                  </p>
+                  <div className="max-h-36 overflow-y-auto divide-y divide-slate-800 border border-slate-800 rounded-xl bg-black/40">
+                    {devDebug.detectedBlocks?.map((b: any, i: number) => (
+                      <div key={i} className="p-1.5 flex justify-between text-[10px]">
+                        <span className="truncate max-w-[280px] text-slate-300">{b.text}</span>
+                        <span className="text-slate-400 font-mono shrink-0">y:{b.y} conf:{b.conf}%</span>
                       </div>
                     ))}
                   </div>
                 </div>
-              )}
-
-              <div className="flex justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={handleSubmit}
-                  disabled={isLoading}
-                  className="px-8 py-3 rounded-lg bg-[#2563EB] text-white text-xs font-bold hover:bg-blue-600 transition-colors shadow-sm disabled:opacity-50 flex items-center gap-2"
-                >
-                  {isLoading ? (
-                    <>
-                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                      Processing Statement...
-                    </>
-                  ) : (
-                    <span>
-                      {activeTab === 'CSV' ? 'Analyze CSV Transactions →' : 'Extract & Review Transactions →'}
-                    </span>
-                  )}
-                </button>
               </div>
-            </div>
-          )}
-        </div>
-
-        {/* Extraction Failure Handling (Requirement 3) */}
-        {extractionError && (
-          <div className="p-5 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-xs text-red-800 dark:text-red-200 space-y-3">
-            <div>
-              <strong className="font-bold text-sm block mb-1">Extraction Unsuccessful:</strong>
-              <p>{extractionError}</p>
-            </div>
-            <div className="flex flex-wrap gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('PDF');
-                  setSelectedFile(null);
-                  fileInputRef.current?.click();
-                }}
-                className="px-3 py-1.5 rounded-md bg-white dark:bg-[#111C2E] border border-red-300 dark:border-red-700 font-semibold hover:bg-red-50"
-              >
-                Try another PDF
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('IMAGE');
-                  setSelectedFile(null);
-                  fileInputRef.current?.click();
-                }}
-                className="px-3 py-1.5 rounded-md bg-white dark:bg-[#111C2E] border border-red-300 dark:border-red-700 font-semibold hover:bg-red-50"
-              >
-                Upload a screenshot
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('CSV');
-                  setSelectedFile(null);
-                  fileInputRef.current?.click();
-                }}
-                className="px-3 py-1.5 rounded-md bg-white dark:bg-[#111C2E] border border-red-300 dark:border-red-700 font-semibold hover:bg-red-50"
-              >
-                Upload CSV
-              </button>
-            </div>
+            )}
           </div>
         )}
 
-        {/* Global Error */}
-        {error && !extractionError && (
-          <div className="p-4 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-xs text-red-700 dark:text-red-300">
-            {error}
-          </div>
+        {/* Scan & Review Submit Button (Requirement 15: Hide when extraction error is shown, and never say Build My Plan for unextracted files) */}
+        {!extractionError && (
+          <button
+            type="button"
+            disabled={selectedFiles.length === 0 || isLoading || uploadStep > 0}
+            onClick={handleSubmit}
+            className="w-full py-4 rounded-xl bg-[#2563EB] text-white text-sm sm:text-base font-bold hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-md active:scale-98"
+          >
+            {isLoading || uploadStep > 0 ? (stepLabel || 'Understanding your statement…') : 'Scan & Review Transactions →'}
+          </button>
         )}
 
-        {/* Help & Templates */}
-        <div className="pt-4 border-t border-[#D7E7F5] dark:border-[#2A3B52] flex flex-col sm:flex-row items-center justify-between text-xs text-[#52657A] dark:text-[#B8C5D6] gap-3">
-          <div className="flex items-center gap-3">
-            <a
-              href="/template-statement.csv"
-              download="flexifund-template.csv"
-              className="text-[#2563EB] dark:text-[#60A5FA] font-semibold underline underline-offset-2 flex items-center gap-1"
-            >
-              Download CSV Template
-            </a>
-          </div>
-          <span className="text-[11px] text-[#52657A] dark:text-[#B8C5D6]">Format support: CSV, PDF statement, PNG / JPG screenshots</span>
+        {/* Zero Password Guarantee (Requirement 23) */}
+        <div className="pt-1 text-center">
+          <p className="text-xs text-[#52657A] dark:text-[#94A3B8] flex items-center justify-center gap-1.5">
+            <span>🔒</span>
+            <span>We never need your UPI PIN, OTP or banking password.</span>
+          </p>
         </div>
       </div>
     </div>

@@ -17,7 +17,8 @@
 .DS_Store
 *.pem
 
-# Local env files
+# Local data & env files
+/.data/
 .env*.local
 .env
 

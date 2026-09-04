@@ -3,7 +3,7 @@ const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   experimental: {
-    serverComponentsExternalPackages: ['pdf-parse'],
+    serverComponentsExternalPackages: ['pdf-parse', 'tesseract.js', 'sharp'],
   },
 };
 

@@ -4,9 +4,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const baseUrl = 'https://flexifund.ai';
   const routes = [
     '',
-    '/onboarding',
-    '/profile',
     '/upload',
+    '/profile',
     '/dashboard',
     '/income',
     '/expenses',

@@ -3,166 +3,285 @@
 import React from 'react';
 import Link from 'next/link';
 import { useFinancialData } from '@/context/FinancialDataContext';
-import EmptyState from '@/components/EmptyState';
-import ExplainButton from '@/components/ExplainButton';
+import { useAuth } from '@/context/AuthContext';
+import { useGoals, GOAL_TYPE_LABELS } from '@/lib/use-goals';
 
 export default function SavingsPage() {
   const { analysisResult } = useFinancialData();
+  const { user } = useAuth();
+  const { primaryGoal } = useGoals(user?.id);
 
   if (!analysisResult) {
     return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        <EmptyState
-          title="No savings opportunities identified yet."
-          description="Upload financial data to identify areas to save."
-          actionText="Upload financial data"
-          actionHref="/upload"
-        />
+      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-16 text-center">
+        <div className="bg-white dark:bg-[#111C2E] border border-[#D7E7F5] dark:border-[#2A3B52] rounded-3xl p-8 sm:p-12 shadow-sm space-y-6">
+          <div className="w-16 h-16 rounded-2xl bg-blue-50 dark:bg-blue-950/70 text-[#2563EB] dark:text-[#60A5FA] flex items-center justify-center text-3xl mx-auto font-bold">
+            💰
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0F2747] dark:text-[#F8FAFC]">
+              Find ways to save
+            </h1>
+            <p className="text-sm text-[#52657A] dark:text-[#CBD5E1]">
+              Upload your statement and we’ll look for places where you may be able to save.
+            </p>
+          </div>
+          <Link
+            href="/upload"
+            className="inline-flex items-center gap-2 px-8 py-3.5 rounded-xl bg-[#2563EB] text-white font-bold text-sm hover:bg-blue-600 transition-colors shadow-sm"
+          >
+            <span>Upload statement →</span>
+          </Link>
+        </div>
       </div>
     );
   }
 
-  const opportunities = analysisResult.savingsOpportunities;
+  const opportunities = analysisResult.savingsOpportunities || [];
   const capacity = analysisResult.savingsCapacity;
+  const exp = analysisResult.expenseAnalysis;
 
-  const formatINR = (paiseStr?: string | null) => {
-    if (!paiseStr) return '₹0.00';
-    const n = Number(paiseStr) / 100;
-    return `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const formatRupees = (paiseStr?: string | null | bigint) => {
+    if (!paiseStr) return '₹0';
+    const num = typeof paiseStr === 'bigint' ? Number(paiseStr) : Number(paiseStr);
+    const rupees = Math.round(num / 100);
+    return `₹${rupees.toLocaleString('en-IN')}`;
+  };
+
+  // 1. Total potential saving per month
+  const totalPotentialPaise = opportunities.reduce(
+    (acc, opp) => acc + BigInt(opp.potentialMonthlySaving?.paise || '0'),
+    0n
+  );
+  const potentialSavingsDisplay = formatRupees(totalPotentialPaise);
+
+  // 2. Main Spending Categories (Food, Travel/work, Bills, Other)
+  const breakdown = exp.categoryBreakdown || {};
+  const foodPaise =
+    BigInt(breakdown['ESSENTIAL_GROCERIES']?.total.paise || 0) +
+    BigInt(breakdown['DISCRETIONARY']?.total.paise || 0);
+  const transitPaise = BigInt(breakdown['WORK_FUEL_TRANSIT']?.total.paise || 0);
+  const billsPaise =
+    BigInt(breakdown['ESSENTIAL_UTILITIES']?.total.paise || 0) +
+    BigInt(breakdown['ESSENTIAL_HOUSING']?.total.paise || 0) +
+    BigInt(breakdown['DEBT_REPAYMENT']?.total.paise || 0);
+
+  const allSpentPaise = BigInt(exp.monthlyAverageExpenses?.paise || exp.totalExpenses.paise);
+  const otherPaise = allSpentPaise > foodPaise + transitPaise + billsPaise
+    ? allSpentPaise - (foodPaise + transitPaise + billsPaise)
+    : 0n;
+
+  // 3. Targets
+  const starterTarget = formatRupees(capacity.conservativeMonthlyReference.paise);
+  const normalTarget = formatRupees(capacity.conservativeMonthlyReference.paise);
+  const goodMonthExtra = formatRupees(
+    BigInt(capacity.maximumMonthlySavings.paise) > BigInt(capacity.conservativeMonthlyReference.paise)
+      ? BigInt(capacity.maximumMonthlySavings.paise) - BigInt(capacity.conservativeMonthlyReference.paise)
+      : BigInt(capacity.conservativeMonthlyReference.paise)
+  );
+
+  const getFriendlyOpportunityIcon = (type: string) => {
+    switch (type) {
+      case 'RECURRING_DISCRETIONARY_PAYMENT':
+        return '🔁';
+      case 'REPEATED_DISCRETIONARY_SPEND':
+      case 'HIGH_DISCRETIONARY_OUTFLOW':
+        return '🍔';
+      case 'WORK_EXPENSE_OPTIMIZATION':
+        return '⛽';
+      case 'AVOIDABLE_FEES_CHARGES':
+        return '🏦';
+      default:
+        return '💡';
+    }
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-[#D7E7F5] dark:border-[#2A3B52]">
-        <div>
-          <span className="text-xs font-bold uppercase tracking-widest text-[#059669] dark:text-[#34D399]">
-            Money-Saving Engine
-          </span>
-          <h1 className="text-3xl font-extrabold text-[#0F2747] dark:text-[#F8FAFC] tracking-tight mt-1">
-            Potential Savings Opportunities
-          </h1>
-          <p className="text-[#52657A] dark:text-[#B8C5D6] text-sm mt-1 max-w-2xl">
-            Evidence-backed areas to moderate discretionary outlays and redirect surplus into emergency reserves.
-          </p>
-        </div>
-        <Link
-          href="/dashboard"
-          className="px-4 py-2 rounded-lg border border-[#D7E7F5] dark:border-[#2A3B52] text-xs font-semibold text-[#0F2747] dark:text-[#F8FAFC] hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors self-start md:self-auto shadow-xs"
-        >
-          ← Back to Overview
-        </Link>
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 space-y-8">
+      {/* Title */}
+      <div className="space-y-1">
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0F2747] dark:text-[#F8FAFC] tracking-tight">
+          Find ways to save
+        </h1>
+        <p className="text-xs sm:text-sm text-[#52657A] dark:text-[#CBD5E1]">
+          Let’s look at your actual spending and find places you may be able to reduce.
+        </p>
       </div>
 
-      {/* 1. Dynamic Savings Capacity Range */}
+      {/* Active goal banner */}
+      {primaryGoal && (
+        <div className="p-4 rounded-2xl bg-[#F5FAFF] dark:bg-[#17243A] border border-[#D7E7F5] dark:border-[#2A3B52] flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span>{GOAL_TYPE_LABELS[primaryGoal.type].icon}</span>
+            <p className="text-xs text-[#52657A] dark:text-[#CBD5E1]">
+              <span className="font-semibold text-[#0F2747] dark:text-[#F8FAFC]">Your current goal:</span>{' '}
+              {primaryGoal.label} — ₹{primaryGoal.targetRupees.toLocaleString('en-IN')}
+            </p>
+          </div>
+          <Link href="/my-goals" className="text-xs font-bold text-[#2563EB] dark:text-[#60A5FA] hover:underline shrink-0">
+            Track progress →
+          </Link>
+        </div>
+      )}
+
+      {/* 1. YOU MAY BE ABLE TO SAVE Hero Banner */}
+      <div className="bg-gradient-to-r from-blue-50 to-indigo-50/50 dark:from-[#13233D] dark:to-[#17253D] border border-blue-200 dark:border-blue-900/60 rounded-3xl p-6 sm:p-8 space-y-2">
+        <span className="text-xs sm:text-sm font-bold uppercase tracking-wider text-[#2563EB] dark:text-[#60A5FA]">
+          You may be able to save
+        </span>
+        <div className="flex items-baseline gap-2">
+          <span className="text-4xl sm:text-5xl font-extrabold text-[#0F2747] dark:text-[#F8FAFC] font-mono">
+            {potentialSavingsDisplay}
+          </span>
+          <span className="text-sm sm:text-base font-medium text-[#52657A] dark:text-[#94A3B8]">
+            / month
+          </span>
+        </div>
+        <p className="text-xs text-[#52657A] dark:text-[#CBD5E1] pt-1">
+          💡 <em>Potential saving — not guaranteed.</em> Based on avoidable fees, recurring payments, and non-essential spending found in your statement.
+        </p>
+      </div>
+
+      {/* 2. WHERE YOUR MONEY GOES */}
       <div className="bg-white dark:bg-[#111C2E] border border-[#D7E7F5] dark:border-[#2A3B52] rounded-3xl p-6 sm:p-8 shadow-sm space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#D7E7F5] dark:border-[#2A3B52] pb-4">
-          <div>
-            <span className="text-xs font-bold uppercase tracking-wider text-[#52657A] dark:text-[#B8C5D6]">
-              Adaptive Planning Metric
-            </span>
-            <h2 className="text-xl font-bold text-[#0F2747] dark:text-[#F8FAFC]">
-              Personalized Monthly Savings Capacity Range
-            </h2>
-          </div>
-          <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 self-start sm:self-auto">
-            {capacity.status.replace(/_/g, ' ')}
-          </span>
-        </div>
+        <h2 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-[#52657A] dark:text-[#94A3B8]">
+          Where Your Money Goes
+        </h2>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
-          {/* Minimum Target */}
-          <div className="p-4 rounded-2xl bg-[#F5FAFF] dark:bg-[#17243A] border border-[#D7E7F5] dark:border-[#2A3B52] space-y-1">
-            <span className="text-xs font-bold text-[#52657A] dark:text-[#B8C5D6] uppercase tracking-wide">
-              Lean Month Sustainable Target (Minimum)
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="bg-[#F8FAFC] dark:bg-[#17243A] rounded-2xl p-4 border border-[#E2E8F0] dark:border-[#26354D]">
+            <span className="text-xl mb-1 block">🍔</span>
+            <span className="text-xs text-[#52657A] dark:text-[#94A3B8] block">Food & groceries</span>
+            <span className="text-lg sm:text-xl font-extrabold text-[#0F2747] dark:text-[#F8FAFC] font-mono block mt-1">
+              {formatRupees(foodPaise)}
             </span>
-            <div className="text-3xl font-extrabold text-[#0F2747] dark:text-[#F8FAFC] font-mono">
-              {formatINR(capacity.minimumMonthlySavings.paise)}
-            </div>
-            <p className="text-xs text-[#52657A] dark:text-[#B8C5D6] pt-1 leading-relaxed">
-              Derived from conservative planning surplus. If essential living expenses consume conservative earnings, the target adjusts to ₹0 to avoid forced borrowing.
-            </p>
           </div>
 
-          {/* Maximum Target */}
-          <div className="p-4 rounded-2xl bg-[#F5FAFF] dark:bg-[#17243A] border border-[#D7E7F5] dark:border-[#2A3B52] space-y-1">
-            <span className="text-xs font-bold text-[#52657A] dark:text-[#B8C5D6] uppercase tracking-wide">
-              Peak Month Recommended Target (Maximum)
+          <div className="bg-[#F8FAFC] dark:bg-[#17243A] rounded-2xl p-4 border border-[#E2E8F0] dark:border-[#26354D]">
+            <span className="text-xl mb-1 block">⛽</span>
+            <span className="text-xs text-[#52657A] dark:text-[#94A3B8] block">Travel & work petrol</span>
+            <span className="text-lg sm:text-xl font-extrabold text-[#0F2747] dark:text-[#F8FAFC] font-mono block mt-1">
+              {formatRupees(transitPaise)}
             </span>
-            <div className="text-3xl font-extrabold text-[#059669] dark:text-[#34D399] font-mono">
-              {formatINR(capacity.maximumMonthlySavings.paise)}
-            </div>
-            <p className="text-xs text-[#52657A] dark:text-[#B8C5D6] pt-1 leading-relaxed">
-              Achievable when platform payouts hit median levels and discretionary spending leaks are moderated.
-            </p>
           </div>
-        </div>
 
-        <div className="pt-2 text-xs text-[#52657A] dark:text-[#B8C5D6]">
-          <strong>Adaptive Guidance:</strong> {capacity.explanation}
+          <div className="bg-[#F8FAFC] dark:bg-[#17243A] rounded-2xl p-4 border border-[#E2E8F0] dark:border-[#26354D]">
+            <span className="text-xl mb-1 block">🏠</span>
+            <span className="text-xs text-[#52657A] dark:text-[#94A3B8] block">Rent, bills & loans</span>
+            <span className="text-lg sm:text-xl font-extrabold text-[#0F2747] dark:text-[#F8FAFC] font-mono block mt-1">
+              {formatRupees(billsPaise)}
+            </span>
+          </div>
+
+          <div className="bg-[#F8FAFC] dark:bg-[#17243A] rounded-2xl p-4 border border-[#E2E8F0] dark:border-[#26354D]">
+            <span className="text-xl mb-1 block">📦</span>
+            <span className="text-xs text-[#52657A] dark:text-[#94A3B8] block">Other spending</span>
+            <span className="text-lg sm:text-xl font-extrabold text-[#0F2747] dark:text-[#F8FAFC] font-mono block mt-1">
+              {formatRupees(otherPaise)}
+            </span>
+          </div>
         </div>
       </div>
 
-      {/* 2. Detected Savings Opportunities */}
-      <div className="bg-white dark:bg-[#111C2E] border border-[#D7E7F5] dark:border-[#2A3B52] rounded-3xl p-6 sm:p-8 shadow-sm space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#D7E7F5] dark:border-[#2A3B52] pb-4">
-          <div>
-            <span className="text-xs font-bold uppercase tracking-wider text-[#52657A] dark:text-[#B8C5D6]">
-              Empirical Findings
-            </span>
-            <h2 className="text-xl font-bold text-[#0F2747] dark:text-[#F8FAFC]">
-              Identified Savings Opportunities ({opportunities.length})
-            </h2>
-          </div>
-        </div>
+      {/* 3. PLACES TO CHECK */}
+      <div className="space-y-4">
+        <h2 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-[#52657A] dark:text-[#94A3B8]">
+          Places to Check ({opportunities.length})
+        </h2>
 
         {opportunities.length === 0 ? (
-          <div className="p-8 text-center text-xs text-[#52657A] dark:text-[#B8C5D6]">
-            No discretionary recurring leaks detected in the uploaded statement. Spending is already tightly consolidated.
+          <div className="bg-white dark:bg-[#111C2E] border border-[#D7E7F5] dark:border-[#2A3B52] rounded-3xl p-6 text-center space-y-2">
+            <span className="text-3xl">✓</span>
+            <h3 className="text-base font-bold text-[#0F2747] dark:text-[#F8FAFC]">
+              No unusual spending leaks found
+            </h3>
+            <p className="text-xs sm:text-sm text-[#52657A] dark:text-[#CBD5E1]">
+              Your spending is already tightly focused on essentials without obvious recurring leaks.
+            </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 gap-4">
             {opportunities.map((opp) => (
               <div
                 key={opp.id}
-                className="p-5 rounded-2xl border border-[#D7E7F5] dark:border-[#2A3B52] bg-[#F5FAFF]/50 dark:bg-[#17243A]/40 space-y-3"
+                className="bg-white dark:bg-[#111C2E] border border-[#D7E7F5] dark:border-[#2A3B52] rounded-2xl p-5 sm:p-6 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4"
               >
-                <div className="flex justify-between items-start">
-                  <div>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300">
-                      {opp.category}
-                    </span>
-                    <h3 className="font-bold text-[#0F2747] dark:text-[#F8FAFC] text-sm mt-1">{opp.title}</h3>
+                <div className="space-y-1.5 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">{getFriendlyOpportunityIcon(opp.category)}</span>
+                    <h3 className="text-sm sm:text-base font-bold text-[#0F2747] dark:text-[#F8FAFC]">
+                      {opp.title}
+                    </h3>
                   </div>
-                  <div className="text-right">
-                    <span className="text-xs font-bold text-[#059669] dark:text-[#34D399] font-mono">
-                      {opp.potentialMonthlySaving ? `Save +${formatINR(opp.potentialMonthlySaving.paise)}/mo` : 'Discretionary buffer'}
-                    </span>
-                    <span className="block text-[10px] text-[#52657A] dark:text-[#B8C5D6]">
-                      {opp.confidence} Confidence
-                    </span>
+                  <p className="text-xs sm:text-sm text-[#52657A] dark:text-[#CBD5E1] leading-relaxed">
+                    {opp.description}
+                  </p>
+                  <div className="text-xs text-[#059669] dark:text-[#34D399] font-medium pt-1">
+                    Action: {opp.recommendedAction}
                   </div>
                 </div>
 
-                <p className="text-xs text-[#52657A] dark:text-[#B8C5D6] leading-relaxed">{opp.description}</p>
-
-                <div className="pt-2 flex items-center justify-between text-[11px] text-[#52657A] dark:text-[#B8C5D6] border-t border-slate-200 dark:border-slate-700">
-                  <span>
-                    Confidence: <strong>{opp.confidence}</strong>
+                <div className="sm:text-right border-t sm:border-t-0 pt-3 sm:pt-0 border-slate-100 dark:border-slate-800 shrink-0">
+                  <span className="text-[11px] uppercase tracking-wider text-[#52657A] dark:text-[#94A3B8] block">
+                    Potential saving
                   </span>
-                  <ExplainButton
-                    topic="SAVINGS_OPPORTUNITIES"
-                    contextEvidence={{
-                      metricName: opp.title,
-                      observedValue: opp.potentialMonthlySaving ? formatINR(opp.potentialMonthlySaving.paise) : 'Behavioral opportunity',
-                      explanation: opp.description,
-                    }}
-                  />
+                  <span className="text-xl font-extrabold text-[#059669] dark:text-[#34D399] font-mono">
+                    {formatRupees(opp.potentialMonthlySaving?.paise || '0')}
+                  </span>
+                  <span className="text-xs text-[#52657A] dark:text-[#94A3B8] block">/ month</span>
                 </div>
               </div>
             ))}
           </div>
         )}
+      </div>
+
+      {/* 4. PERSONALIZED SAVING TARGET */}
+      <div className="bg-white dark:bg-[#111C2E] border border-[#D7E7F5] dark:border-[#2A3B52] rounded-3xl p-6 sm:p-8 shadow-sm space-y-6">
+        <div>
+          <span className="text-xs font-bold uppercase tracking-wider text-[#059669] dark:text-[#34D399]">
+            Your Saving Target
+          </span>
+          <div className="flex items-baseline gap-2 mt-1">
+            <span className="text-3xl sm:text-4xl font-extrabold text-[#0F2747] dark:text-[#F8FAFC] font-mono">
+              {starterTarget}
+            </span>
+            <span className="text-sm text-[#52657A] dark:text-[#94A3B8]">/ month starter goal</span>
+          </div>
+          <p className="text-xs sm:text-sm text-[#52657A] dark:text-[#CBD5E1] mt-1">
+            Based on your actual income and spending, this is a starting target that is realistic to maintain.
+          </p>
+        </div>
+
+        {/* 3 Situations: Low / Normal / Good Months */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+          <div className="bg-[#F8FAFC] dark:bg-[#17243A] rounded-2xl p-4 border border-[#E2E8F0] dark:border-[#26354D] space-y-1">
+            <span className="text-xs font-bold text-amber-700 dark:text-amber-400 block">
+              🟡 Low-Income Month
+            </span>
+            <p className="text-xs text-[#52657A] dark:text-[#CBD5E1] leading-relaxed">
+              Save less if needed. Take care of rent, groceries, and essential living costs first.
+            </p>
+          </div>
+
+          <div className="bg-[#F8FAFC] dark:bg-[#17243A] rounded-2xl p-4 border border-[#E2E8F0] dark:border-[#26354D] space-y-1">
+            <span className="text-xs font-bold text-[#2563EB] dark:text-[#60A5FA] block">
+              🔵 Normal Month
+            </span>
+            <p className="text-xs text-[#52657A] dark:text-[#CBD5E1] leading-relaxed">
+              Try to put away around <strong className="font-mono text-[#0F2747] dark:text-[#F8FAFC]">{normalTarget}</strong> into your safety cushion.
+            </p>
+          </div>
+
+          <div className="bg-[#F8FAFC] dark:bg-[#17243A] rounded-2xl p-4 border border-[#E2E8F0] dark:border-[#26354D] space-y-1">
+            <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 block">
+              🟢 Good-Income Month
+            </span>
+            <p className="text-xs text-[#52657A] dark:text-[#CBD5E1] leading-relaxed">
+              When earnings are higher, try adding <strong className="font-mono text-[#0F2747] dark:text-[#F8FAFC]">{goodMonthExtra}</strong> extra to your cushion.
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );

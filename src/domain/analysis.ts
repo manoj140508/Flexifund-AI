@@ -7,7 +7,7 @@
  * Provides unified Data Quality grading and JSON-safe boundary serialization.
  */
 
-import { Money, SerializedMoney, serializeMoney } from './money';
+import { Money, SerializedMoney, serializeMoney, moneyFromPaise } from './money';
 import { NormalizedTransaction } from './transactions';
 import { IncomeAnalysis, SerializedIncomeAnalysis, analyzeIncome, serializeIncomeAnalysis } from './income';
 import { ExpenseAnalysis, SerializedExpenseAnalysis, analyzeExpenses, serializeExpenseAnalysis } from './expenses';
@@ -217,6 +217,7 @@ export function runFinancialAnalysis(input: RunAnalysisInput): FinancialAnalysis
   const savingsOpportunities = detectSavingsOpportunities({
     incomeAnalysis,
     expenseAnalysis,
+    transactions,
   });
 
   const savingsCapacity = calculateSavingsCapacity(incomeAnalysis, expenseAnalysis);
@@ -463,3 +464,122 @@ export function serializeFinancialAnalysisResult(
     allLimitations: result.allLimitations,
   };
 }
+
+/**
+ * Re-evaluates resilience, emergency runway, and stress indicators when the user provides or updates their liquid cash balance.
+ * Deterministic, purely client/server compatible without re-parsing transactions.
+ */
+export function recalculateResilienceWithCash(
+  analysis: SerializedFinancialAnalysisResult,
+  userCashPaise: bigint | null
+): SerializedFinancialAnalysisResult {
+  const inc = analysis.incomeAnalysis;
+  const exp = analysis.expenseAnalysis;
+
+  // Reconstruct IncomeAnalysis domain object for resilience and stress evaluation
+  const domainIncome: IncomeAnalysis = {
+    totalIncome: moneyFromPaise(BigInt(inc.totalIncome.paise)),
+    monthlyAverage: moneyFromPaise(BigInt(inc.monthlyAverage.paise)),
+    monthlyMedian: moneyFromPaise(BigInt(inc.monthlyMedian.paise)),
+    monthlyStandardDeviationPaise: BigInt(inc.monthlyStandardDeviationPaise || '0'),
+    coefficientOfVariation: inc.coefficientOfVariation,
+    volatilityRating: inc.volatilityRating,
+    conservativeBaselineMonthly: moneyFromPaise(BigInt(inc.conservativeBaselineMonthly.paise)),
+    conservativePlanningLabel: inc.conservativePlanningLabel,
+    trend: inc.trend,
+    highestMonth: inc.highestMonth
+      ? { period: inc.highestMonth.period, amount: moneyFromPaise(BigInt(inc.highestMonth.amount.paise)) }
+      : null,
+    lowestMonth: inc.lowestMonth
+      ? { period: inc.lowestMonth.period, amount: moneyFromPaise(BigInt(inc.lowestMonth.amount.paise)) }
+      : null,
+    monthlyBreakdown: (inc.monthlyBreakdown || []).map((m) => ({
+      periodKey: m.periodKey,
+      totalPaise: BigInt(m.total.paise),
+      transactionCount: m.transactionCount,
+      transactionIds: m.transactionIds,
+    })),
+    weeklyBreakdown: (inc.weeklyBreakdown || []).map((w) => ({
+      weekKey: w.weekKey,
+      totalPaise: BigInt(w.total.paise),
+      transactionCount: w.transactionCount,
+      transactionIds: w.transactionIds,
+    })),
+    incomeConcentration: inc.incomeConcentration
+      ? {
+          topSourceMerchant: inc.incomeConcentration.topSourceMerchant,
+          topSourcePaise: BigInt(inc.incomeConcentration.topSource.paise),
+          percentageBasisPoints: inc.incomeConcentration.percentageBasisPoints,
+        }
+      : null,
+    sampleDurationDays: inc.sampleDurationDays,
+    sampleMonthsCount: inc.sampleMonthsCount,
+    confidence: inc.confidence,
+    dataLimitations: inc.dataLimitations || [],
+  };
+
+  // Reconstruct ExpenseAnalysis domain object for resilience and stress evaluation
+  const domainExpense: ExpenseAnalysis = {
+    totalExpenses: moneyFromPaise(BigInt(exp.totalExpenses.paise)),
+    monthlyAverageExpenses: moneyFromPaise(BigInt(exp.monthlyAverageExpenses?.paise || exp.totalExpenses.paise)),
+    essentialMonthlyBurn: moneyFromPaise(BigInt(exp.essentialMonthlyBurn.paise)),
+    dailyBurnRate: moneyFromPaise(BigInt(exp.dailyBurnRate?.paise || '0')),
+    dailyEssentialBurnRate: moneyFromPaise(BigInt(exp.dailyEssentialBurnRate.paise)),
+    discretionaryMonthlyBurn: moneyFromPaise(BigInt(exp.discretionaryMonthlyBurn.paise)),
+    workRelatedMonthlyBurn: moneyFromPaise(BigInt(exp.workRelatedMonthlyBurn.paise)),
+    debtRepaymentsMonthly: moneyFromPaise(BigInt(exp.debtRepaymentsMonthly.paise)),
+    feesAndChargesTotal: moneyFromPaise(BigInt(exp.feesAndChargesTotal?.paise || '0')),
+    transfersTotal: moneyFromPaise(BigInt(exp.transfersTotal?.paise || '0')),
+    uncategorizedTotal: moneyFromPaise(BigInt(exp.uncategorizedTotal?.paise || '0')),
+    essentialExpenseRatioBasisPoints: exp.essentialExpenseRatioBasisPoints || 0,
+    categoryBreakdown: Object.fromEntries(
+      Object.entries(exp.categoryBreakdown || {}).map(([k, v]) => [
+        k,
+        {
+          category: v.category,
+          total: moneyFromPaise(BigInt(v.total.paise)),
+          percentageBasisPoints: v.percentageBasisPoints || 0,
+          transactionCount: v.transactionCount,
+          transactionIds: v.transactionIds || [],
+        },
+      ])
+    ) as any,
+    majorCategories: exp.majorCategories || [],
+    categoryTrends: exp.categoryTrends || [],
+    unusualSpikes: [],
+    recurringPayments: [],
+    monthlyPeriods: (exp.monthlyPeriods || []).map((p) => ({
+      periodKey: p.periodKey,
+      total: moneyFromPaise(BigInt(p.total.paise)),
+      essentialTotal: moneyFromPaise(BigInt(p.essentialTotal.paise)),
+      discretionaryTotal: moneyFromPaise(BigInt(p.discretionaryTotal.paise)),
+    })),
+    sampleDurationDays: exp.sampleDurationDays,
+    sampleMonthsCount: exp.sampleMonthsCount,
+  };
+
+  const cashMoney = userCashPaise !== null && userCashPaise >= 0n ? moneyFromPaise(userCashPaise) : null;
+
+  const resilienceAnalysis = analyzeResilience({
+    incomeAnalysis: domainIncome,
+    expenseAnalysis: domainExpense,
+    userProvidedCashBalance: cashMoney,
+  });
+
+  const stressIndicators = detectFinancialStress({
+    incomeAnalysis: domainIncome,
+    expenseAnalysis: domainExpense,
+    resilienceAnalysis,
+  });
+
+  return {
+    ...analysis,
+    metadata: {
+      ...analysis.metadata,
+      userProvidedCashBalance: cashMoney ? serializeMoney(cashMoney) : null,
+    },
+    resilienceAnalysis: serializeResilienceAnalysis(resilienceAnalysis),
+    stressIndicators: serializeStressIndicators(stressIndicators),
+  };
+}
+

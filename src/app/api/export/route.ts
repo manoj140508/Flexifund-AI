@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import fs from 'fs';
+import path from 'path';
+import { buildPdfDoc } from '@/lib/export-generators';
 
 const exportSchema = z.object({
   analysisData: z.any(),
-  format: z.enum(['json', 'markdown', 'text']).optional().default('markdown'),
+  profile: z.any().optional(),
+  options: z.any().optional(),
+  format: z.string().optional().default('pdf'),
 });
 
 export async function POST(req: NextRequest) {
@@ -18,95 +23,57 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { analysisData, format } = parsed.data;
+    const { analysisData, profile, options, format } = parsed.data;
+    const normalizedFormat = (format || 'pdf').toLowerCase();
 
-    if (format === 'json') {
-      return new NextResponse(JSON.stringify(analysisData, null, 2), {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Disposition': `attachment; filename="flexifund-resilience-report-${Date.now()}.json"`,
+    if (normalizedFormat === 'image' || normalizedFormat === 'png') {
+      return NextResponse.json(
+        {
+          error: 'Image generation is performed client-side on canvas for maximum device responsiveness. Please use the "Export My Plan" button in the application interface.',
         },
-      });
+        { status: 400 }
+      );
     }
 
-    // Generate clean, comprehensive Markdown report
-    const meta = analysisData.metadata || {};
-    const inc = analysisData.incomeAnalysis || {};
-    const exp = analysisData.expenseAnalysis || {};
-    const res = analysisData.resilienceAnalysis || {};
-    const savings = analysisData.savingsOpportunities || [];
-    const stress = analysisData.stressIndicators || [];
-    const actions = analysisData.prioritizedActions || [];
-    const quality = analysisData.dataQuality || {};
+    // Load static Roboto TTF fonts for pristine Unicode Rupee (₹) rendering and natural letter spacing
+    let fontOptions = options || {};
+    try {
+      const regPath = path.join(process.cwd(), 'public', 'fonts', 'Roboto-Regular.ttf');
+      const boldPath = path.join(process.cwd(), 'public', 'fonts', 'Roboto-Bold.ttf');
+      const italicPath = path.join(process.cwd(), 'public', 'fonts', 'Roboto-Italic.ttf');
+      if (fs.existsSync(regPath) && fs.existsSync(boldPath)) {
+        const regularBase64 = fs.readFileSync(regPath).toString('base64');
+        const boldBase64 = fs.readFileSync(boldPath).toString('base64');
+        const italicBase64 = fs.existsSync(italicPath) ? fs.readFileSync(italicPath).toString('base64') : undefined;
+        fontOptions = {
+          ...fontOptions,
+          fonts: {
+            regularBase64,
+            boldBase64,
+            italicBase64,
+          },
+        };
+      }
+    } catch (fontErr) {
+      console.warn('Could not load custom TTF font for PDF generation:', fontErr);
+    }
 
-    const report = `# FLEXIFUND AI — FINANCIAL RESILIENCE REPORT
-Generated: ${meta.generatedAt || new Date().toISOString()}
-Analysis ID: ${meta.analysisId || 'N/A'}
-Source Statement: ${meta.sourceReference || 'Statement'}
+    // Generate production-quality downloadable PDF using the exact same deterministic single source of truth
+    const doc = buildPdfDoc(analysisData, profile, fontOptions);
+    const arrayBuffer = doc.output('arraybuffer');
+    const filename = `My-Financial-Plan-${Date.now()}.pdf`;
 
----
-
-## 1. RESILIENCE ASSESSMENT
-- Resilience Score: ${res.resilienceScore !== null ? `${res.resilienceScore}/100` : 'Not Calculable'}
-- Score Interpretation: ${res.summaryExplanation || 'N/A'}
-- Emergency Buffer Runway: ${res.bufferCoverageDays !== null ? `${res.bufferCoverageDays} days` : 'Current cash balance not provided'}
-- Coverage Status: ${res.coverageStatus || 'INSUFFICIENT_DATA'}
-- Historical Net Cash Surplus: ₹${(Number(res.estimatedHistoricalNetSurplus?.paise || 0) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-
-## 2. INCOME ANALYSIS
-- Monthly Average: ₹${(Number(inc.monthlyAverage?.paise || 0) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-- Median Monthly Income: ₹${(Number(inc.monthlyMedian?.paise || 0) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-- Conservative Planning Reference: ₹${(Number(inc.conservativeBaselineMonthly?.paise || 0) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })} (Planning reference — not guaranteed income)
-- Volatility Rating: ${inc.volatilityRating || 'N/A'} (CV: ${inc.coefficientOfVariation ? (inc.coefficientOfVariation * 100).toFixed(1) + '%' : 'N/A'})
-- Directional Trend: ${inc.trend || 'N/A'}
-- Sample Period: ${quality.startDate || 'N/A'} to ${quality.endDate || 'N/A'} (${quality.observedMonths || 1} months)
-
-## 3. EXPENSES & COMMITMENTS
-- Total Outflow: ₹${(Number(exp.totalExpenses?.paise || 0) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-- Essential Monthly Living Burn: ₹${(Number(exp.essentialMonthlyBurn?.paise || 0) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-- Daily Essential Burn Rate: ₹${(Number(exp.dailyEssentialBurnRate?.paise || 0) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}/day
-- Recurring Fixed Debt Outlay: ₹${(Number(exp.debtRepaymentsMonthly?.paise || 0) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}/month
-
-## 4. POTENTIAL MONEY-SAVING OPPORTUNITIES
-${savings.length > 0
-  ? savings.map((s: any, idx: number) => `### ${idx + 1}. ${s.title}
-- Category: ${s.category}
-- Potential Monthly Saving: ₹${(Number(s.potentialMonthlySaving?.paise || 0) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-- Evidence: ${s.evidence?.explanation || s.description}
-- Action: ${s.recommendedAction}`).join('\n\n')
-  : 'No recurring discretionary leaks identified.'}
-
-## 5. FINANCIAL PRESSURE SIGNALS
-${stress.length > 0
-  ? stress.map((st: any, idx: number) => `### ${idx + 1}. [${st.severity}] ${st.title}
-- Finding: ${st.description}
-- Evidence: ${st.evidence?.explanation || 'Empirical statement indicator'}
-- Recommended Action: ${st.recommendedAction}`).join('\n\n')
-  : 'No elevated early warning pressure signals identified.'}
-
-## 6. TOP PRIORITIZED ACTIONS
-${actions.length > 0
-  ? actions.map((a: any, idx: number) => `${idx + 1}. [${a.urgency}] ${a.title}
-   - Rationale: ${a.description}
-   - Potential Impact: ${a.potentialMonthlySaving ? `₹${(Number(a.potentialMonthlySaving.paise) / 100).toFixed(2)}/mo` : 'Buffer & Stability'}
-   - Next Step: ${a.actionUrlOrPrompt}`).join('\n\n')
-  : 'Continue maintaining regular savings habits.'}
-
----
-*Disclaimer: FlexiFund AI is an educational planning indicator, not a credit score or regulated financial advice. All figures are deterministically derived from your uploaded statement.*
-`;
-
-    return new NextResponse(report, {
+    return new NextResponse(Buffer.from(arrayBuffer), {
       status: 200,
       headers: {
-        'Content-Type': 'text/markdown; charset=utf-8',
-        'Content-Disposition': `attachment; filename="flexifund-resilience-report-${Date.now()}.md"`,
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Cache-Control': 'no-store, max-age=0',
       },
     });
   } catch (err: any) {
     return NextResponse.json(
-      { error: 'Failed to generate export', message: err?.message },
+      { error: 'Failed to generate export', message: err?.message || String(err) },
       { status: 500 }
     );
   }

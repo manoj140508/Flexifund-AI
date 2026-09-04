@@ -62,7 +62,7 @@ export default function Navbar() {
             <ThemeToggle />
 
             <Link
-              href="/onboarding"
+              href="/upload"
               className="px-4 py-2 rounded-lg bg-[#2563EB] text-white text-xs font-bold hover:bg-blue-600 transition-colors shadow-xs"
             >
               Check my resilience
@@ -116,7 +116,7 @@ export default function Navbar() {
 
           <div className="pt-2">
             <Link
-              href="/onboarding"
+              href="/upload"
               onClick={() => setMobileMenuOpen(false)}
               className="block w-full text-center px-4 py-2.5 rounded-lg bg-[#2563EB] text-white text-xs font-bold hover:bg-blue-600 transition-colors"
             >

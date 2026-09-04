@@ -1,52 +1,165 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { parseBankStatementText, StatementSourceType } from '@/lib/statement-extractor';
+import {
+  parseBankStatementText,
+  parseGPaySpatialBlocks,
+  deduplicateExtractedTransactions,
+  StatementSourceType,
+  ExtractedStatementTransaction,
+  SpatialOcrLine,
+} from '@/lib/statement-extractor';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
-    const file = formData.get('file') as File | null;
-    const requestedSourceType = (formData.get('sourceType') as StatementSourceType) || 'PDF';
+    // Support single 'file' or multiple 'files' (e.g. multi-screenshot upload)
+    let files = formData.getAll('files') as File[];
+    if (files.length === 0) {
+      files = formData.getAll('file') as File[];
+    }
 
-    if (!file) {
+    const rawSourceTypeParam = formData.get('sourceType') as string | null;
+    const modeParam = formData.get('mode') as string | null;
+
+    if (!files || files.length === 0 || !files[0]) {
       return NextResponse.json(
         { error: 'No statement file provided.' },
         { status: 400 }
       );
     }
 
-    const fileSize = file.size;
-    const mimeType = file.type || '';
-    const fileName = file.name.toLowerCase();
-
-    // 1. File size limit: 15MB for PDF, 10MB for image
-    if (fileSize > 15 * 1024 * 1024) {
+    // Filter out 0-byte or invalid uploads
+    const validFiles = files.filter((f) => f && f.size > 0);
+    if (validFiles.length === 0) {
       return NextResponse.json(
-        { error: 'File exceeds the maximum allowed size of 15MB.' },
+        { error: 'Uploaded file is empty. Please select a valid statement file.' },
         { status: 400 }
       );
     }
 
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    // Enforce size limit per file (15MB)
+    for (const f of validFiles) {
+      if (f.size > 15 * 1024 * 1024) {
+        return NextResponse.json(
+          { error: `File "${f.name}" exceeds the maximum allowed size of 15MB.` },
+          { status: 400 }
+        );
+      }
+    }
 
-    let rawText = '';
-    let pagesProcessed = 1;
+    const firstFile = validFiles[0];
+    const firstFileName = firstFile.name.toLowerCase();
+    const firstMimeType = firstFile.type || '';
+
+    // Resolve statement source type
+    let resolvedSourceType: StatementSourceType | 'CSV' | null = null;
+    if (firstFileName.endsWith('.csv') || firstMimeType === 'text/csv' || rawSourceTypeParam === 'CSV') {
+      resolvedSourceType = 'CSV';
+    } else if (firstFileName.endsWith('.pdf') || firstMimeType === 'application/pdf' || rawSourceTypeParam === 'PDF') {
+      resolvedSourceType = 'PDF';
+    } else if (
+      /\.(png|jpe?g|webp|bmp)$/i.test(firstFileName) ||
+      firstMimeType.startsWith('image/') ||
+      rawSourceTypeParam === 'IMAGE'
+    ) {
+      resolvedSourceType = 'IMAGE';
+    }
+
+    if (!resolvedSourceType) {
+      return NextResponse.json(
+        { error: 'Unsupported file type. Please upload a PDF, PNG, JPG, or CSV statement.' },
+        { status: 400 }
+      );
+    }
+
+    // 1. Direct CSV Processing
+    if (resolvedSourceType === 'CSV') {
+      const arrayBuffer = await firstFile.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      const { parseTransactionCSV } = await import('@/lib/csv-parser');
+      const csvText = buffer.toString('utf-8');
+      const csvResult = parseTransactionCSV(csvText, firstFile.name);
+
+      if (csvResult.validTransactions.length === 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            sourceType: 'CSV',
+            transactions: [],
+            quality: {
+              totalDetected: 0,
+              highConfidenceCount: 0,
+              needsReviewCount: 0,
+              warnings: csvResult.rejectedRows.map((r) => `Row ${r.rowNumber}: ${r.reason}`),
+            },
+            errorMessage:
+              'No valid transactions could be parsed from this CSV. Please check column headers (Date, Description, Amount).',
+          },
+          { status: 422 }
+        );
+      }
+
+      const transactions = csvResult.validTransactions.map((tx, idx) => ({
+        id: tx.id || `csv_tx_${idx}`,
+        date: tx.date,
+        description: tx.rawDescription || tx.normalizedMerchant,
+        amountPaise: tx.amount.paise.toString(),
+        type: (tx.type === 'INCOME' ? 'CREDIT' : 'DEBIT') as 'CREDIT' | 'DEBIT',
+        category: tx.category || 'UNCATEGORIZED',
+        confidence: tx.confidence || 0.95,
+        confidenceLevel: 'HIGH' as const,
+        flaggedForReview: false,
+        flagReason: null,
+      }));
+
+      return NextResponse.json({
+        success: true,
+        sourceType: 'CSV',
+        transactions,
+        quality: {
+          totalDetected: transactions.length,
+          highConfidenceCount: transactions.length,
+          needsReviewCount: 0,
+          warnings: csvResult.rejectedRows.map((r) => `Row ${r.rowNumber}: ${r.reason}`),
+        },
+      });
+    }
 
     // 2. PDF Processing
-    if (
-      requestedSourceType === 'PDF' ||
-      mimeType === 'application/pdf' ||
-      fileName.endsWith('.pdf')
-    ) {
+    if (resolvedSourceType === 'PDF') {
+      const arrayBuffer = await firstFile.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      let rawText = '';
+      let pagesProcessed = 1;
+
       try {
-        // Dynamic import of pdf-parse with ESM/CJS interop
-        const pdfModule = await import('pdf-parse');
-        const pdfParse = (pdfModule as any).default || (pdfModule as any);
-        const pdfData = await pdfParse(buffer);
-        rawText = pdfData.text || '';
-        pagesProcessed = pdfData.numpages || 1;
+        const { PDFParse } = await import('pdf-parse');
+        const parser = new PDFParse({ data: buffer });
+        const textResult = await parser.getText();
+        rawText = textResult.text || '';
+        pagesProcessed = textResult.total || textResult.pages?.length || 1;
+        await parser.destroy();
+
+        // If scanned PDF produced insufficient text, try OCR
+        if (!rawText || rawText.trim().length < 20) {
+          try {
+            const path = await import('path');
+            const workerPath = path.resolve(process.cwd(), 'node_modules/tesseract.js/src/worker-script/node/index.js');
+            const { createWorker } = await import('tesseract.js');
+            const worker = await createWorker('eng', 1, { workerPath, errorHandler: () => {} });
+            try {
+              const ocrResult = await worker.recognize(buffer);
+              if (ocrResult.data.text && ocrResult.data.text.trim().length > rawText.trim().length) {
+                rawText = ocrResult.data.text;
+              }
+            } finally {
+              await worker.terminate();
+            }
+          } catch {
+            // Keep rawText as-is for downstream validation
+          }
+        }
       } catch (pdfErr: any) {
         return NextResponse.json(
           {
@@ -57,93 +170,249 @@ export async function POST(req: NextRequest) {
               totalDetected: 0,
               highConfidenceCount: 0,
               needsReviewCount: 0,
-              warnings: ['Failed to read PDF stream.'],
+              warnings: ['Failed to parse PDF stream: ' + (pdfErr?.message || 'Invalid or encrypted format')],
             },
             errorMessage:
-              "We couldn't reliably read the transaction table from this PDF. The PDF may be password-protected, encrypted, or an unindexed scanned document. Please upload a clear screenshot or CSV instead.",
+              "We couldn't reliably read the transaction table from this PDF. The PDF may be password-protected, encrypted, or unreadable. Please upload a clear screenshot or CSV instead.",
           },
           { status: 422 }
         );
       }
-    } else if (
-      requestedSourceType === 'IMAGE' ||
-      mimeType.startsWith('image/') ||
-      /\.(png|jpe?g|webp)$/i.test(fileName)
-    ) {
-      // 3. Image / Screenshot OCR Processing
-      try {
-        const { createWorker } = await import('tesseract.js');
-        const worker = await createWorker('eng');
-        const ocrResult = await worker.recognize(buffer);
-        rawText = ocrResult.data.text || '';
-        await worker.terminate();
-      } catch (ocrErr: any) {
+
+      if (!rawText || rawText.trim().length < 10) {
         return NextResponse.json(
           {
             success: false,
-            sourceType: 'IMAGE',
+            sourceType: 'PDF',
             transactions: [],
             quality: {
               totalDetected: 0,
               highConfidenceCount: 0,
               needsReviewCount: 0,
-              warnings: ['OCR worker failed to parse image stream.'],
+              warnings: ['No readable text found in PDF document.'],
             },
             errorMessage:
-              "We couldn't reliably read the transaction table from this image. Please ensure the screenshot is high-resolution, uncropped, and contains transaction dates and amounts.",
+              "We couldn't reliably read the transaction table from this PDF. Please upload a clear screenshot or CSV instead.",
           },
           { status: 422 }
         );
       }
-    } else {
-      return NextResponse.json(
-        { error: 'Unsupported file format. Please upload a PDF, PNG, JPG, or WEBP bank statement.' },
-        { status: 400 }
-      );
+
+      const result = parseBankStatementText(rawText, 'PDF', pagesProcessed);
+      if (!result.success || result.transactions.length === 0) {
+        return NextResponse.json(result, { status: 422 });
+      }
+      return NextResponse.json(result);
     }
 
-    if (!rawText || rawText.trim().length < 10) {
+    // 3. IMAGE / GPay Screenshot Processing (Single or Multiple Images)
+    const allExtractedTransactions: ExtractedStatementTransaction[] = [];
+    const allWarnings: string[] = [];
+    let totalImagesProcessed = 0;
+    let lastRawOcrText = '';
+    let lastSpatialLines: SpatialOcrLine[] = [];
+    let lastImageMeta: any = null;
+
+    const path = await import('path');
+    const workerPath = path.resolve(process.cwd(), 'node_modules/tesseract.js/src/worker-script/node/index.js');
+    const { createWorker } = await import('tesseract.js');
+
+    // Process each uploaded screenshot
+    for (const imageFile of validFiles) {
+      let worker: any = null;
+      try {
+        const arrayBuf = await imageFile.arrayBuffer();
+        const imgBuffer = Buffer.from(arrayBuf);
+
+        // A & B: Image verification and decoding with sharp
+        const sharpModule = await import('sharp');
+        const sharp = sharpModule.default || sharpModule;
+        let metadata;
+        try {
+          metadata = await sharp(imgBuffer).metadata();
+          lastImageMeta = { width: metadata.width, height: metadata.height, format: metadata.format };
+        } catch {
+          return NextResponse.json(
+            {
+              success: false,
+              errorMessage: `The file "${imageFile.name}" could not be decoded as an image. Please upload a valid PNG, JPG, or WEBP screenshot.`,
+            },
+            { status: 422 }
+          );
+        }
+
+        // Check for tiny / unreadable thumbnail images (Requirement 18)
+        if ((metadata.width && metadata.width < 200) || (metadata.height && metadata.height < 200)) {
+          return NextResponse.json(
+            {
+              success: false,
+              errorMessage: `This screenshot may be too small (${metadata.width}×${metadata.height}) to read clearly. Try uploading the original screenshot instead of a compressed copy.`,
+            },
+            { status: 422 }
+          );
+        }
+
+        // C: Preprocessing
+        // If image is low-res (< 900px), upscale mildly to 1000px so small fonts are crisp.
+        // If already >= 900px, keep native resolution so large typography does not exceed OCR limits.
+        let sharpBuilder = sharp(imgBuffer).rotate();
+        if (metadata.width && metadata.width < 900) {
+          sharpBuilder = sharpBuilder.resize({ width: 1000, withoutEnlargement: false });
+        }
+        const processedImgBuffer = await sharpBuilder
+          .grayscale()
+          .normalize()
+          .sharpen({ sigma: 1 })
+          .png()
+          .toBuffer();
+
+        worker = await createWorker('eng', 1, { workerPath, errorHandler: () => {} });
+
+        // D & E: Execute OCR with blocks enabled for spatial bounding boxes
+        const ocrPromise = worker.recognize(processedImgBuffer, {}, { blocks: true });
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('OCR processing timed out after 30 seconds')), 30000)
+        );
+
+        const ocrResult: any = await Promise.race([ocrPromise, timeoutPromise]);
+        const extractedText = ocrResult?.data?.text || '';
+        lastRawOcrText = extractedText;
+
+        // F: Extract spatial lines from Tesseract blocks structure
+        const spatialLines: SpatialOcrLine[] = [];
+        if (Array.isArray(ocrResult?.data?.blocks)) {
+          for (const block of ocrResult.data.blocks) {
+            for (const para of (block.paragraphs || [])) {
+              for (const line of (para.lines || [])) {
+                if (line && line.text && line.text.trim().length > 0) {
+                  spatialLines.push({
+                    text: line.text.trim(),
+                    bbox: line.bbox || { x0: 0, y0: 0, x1: 0, y1: 0 },
+                    confidence: typeof line.confidence === 'number' ? line.confidence : 80,
+                  });
+                }
+              }
+            }
+          }
+        }
+        lastSpatialLines = spatialLines;
+
+        if (extractedText.trim().length >= 5 || spatialLines.length > 0) {
+          totalImagesProcessed++;
+          const singleResult = parseGPaySpatialBlocks(spatialLines, extractedText, 1);
+          if (singleResult.success && singleResult.transactions.length > 0) {
+            allExtractedTransactions.push(...singleResult.transactions);
+          }
+        }
+      } catch (err: any) {
+        allWarnings.push(`Screenshot "${imageFile.name}" could not be read cleanly: ${err?.message || 'OCR error'}`);
+      } finally {
+        if (worker) {
+          try {
+            await worker.terminate();
+          } catch {}
+        }
+      }
+    }
+
+    // Deduplicate across screenshots
+    const deduplicated = deduplicateExtractedTransactions(allExtractedTransactions);
+    deduplicated.sort((a, b) => a.date.localeCompare(b.date));
+
+    // Development-only OCR debug information (Requirement 2)
+    const devDebug =
+      process.env.NODE_ENV === 'development'
+        ? {
+            ocrText: lastRawOcrText,
+            detectedBlocks: lastSpatialLines.map((l) => ({
+              text: l.text,
+              y: l.bbox.y0,
+              h: l.bbox.y1 - l.bbox.y0,
+              conf: l.confidence,
+            })),
+            parsedTransactions: deduplicated,
+            errors: allWarnings,
+            imageMeta: lastImageMeta,
+          }
+        : undefined;
+
+    const debugOcr =
+      process.env.NODE_ENV === 'development'
+        ? {
+            rawText: lastRawOcrText,
+            lineCount: lastSpatialLines.length,
+            lines: lastSpatialLines.slice(0, 100).map((l) => ({
+              text: l.text,
+              y0: l.bbox.y0,
+              y1: l.bbox.y1,
+              conf: Math.round(l.confidence),
+            })),
+          }
+        : undefined;
+
+    if (modeParam === 'RECEIPT') {
+      const allLines =
+        lastSpatialLines.length > 0
+          ? lastSpatialLines.map((l) => l.text)
+          : lastRawOcrText.split(/\r?\n/).filter((l) => l.trim().length > 0);
+
+      const { parseReceiptOcrLines } = await import('@/lib/receipt-extractor');
+      const receipt = parseReceiptOcrLines(allLines);
+
+      return NextResponse.json({
+        success: true,
+        sourceType: 'IMAGE',
+        receipt,
+        devDebug,
+        debugOcr,
+      });
+    }
+
+    if (deduplicated.length === 0) {
       return NextResponse.json(
         {
           success: false,
-          sourceType: requestedSourceType,
+          sourceType: 'IMAGE',
           transactions: [],
+          pagesProcessed: totalImagesProcessed || validFiles.length,
           quality: {
             totalDetected: 0,
             highConfidenceCount: 0,
             needsReviewCount: 0,
-            warnings: ['No readable text found in document.'],
+            warnings: allWarnings.length > 0 ? allWarnings : ["We couldn't read the transactions in this screenshot."],
           },
           errorMessage:
-            "We couldn't reliably read the transaction table from this file. Please try another statement or upload a CSV.",
+            "We couldn't read the transactions in this screenshot. Try a clearer GPay screenshot with transaction dates, names and amounts visible.",
+          devDebug,
+          debugOcr,
         },
         { status: 422 }
       );
     }
 
-    // 4. Parse detected transactions
-    const result = parseBankStatementText(rawText, requestedSourceType, pagesProcessed);
+    const highConfidenceCount = deduplicated.filter((t) => t.confidence === 'HIGH').length;
+    const needsReviewCount = deduplicated.length - highConfidenceCount;
 
-    if (!result.success || result.transactions.length === 0) {
-      return NextResponse.json(
-        {
-          success: false,
-          sourceType: requestedSourceType,
-          transactions: [],
-          quality: {
-            totalDetected: 0,
-            highConfidenceCount: 0,
-            needsReviewCount: 0,
-            warnings: result.quality.warnings,
-          },
-          errorMessage:
-            "We couldn't reliably read the transaction table from this file. Try another PDF, upload a screenshot, or upload CSV.",
-        },
-        { status: 422 }
-      );
+    if (needsReviewCount > 0) {
+      allWarnings.push(`${needsReviewCount} transaction(s) need your review before analysis.`);
     }
 
-    return NextResponse.json(result);
+    return NextResponse.json({
+      success: true,
+      sourceType: 'IMAGE',
+      transactions: deduplicated,
+      pagesProcessed: totalImagesProcessed,
+      quality: {
+        totalDetected: deduplicated.length,
+        highConfidenceCount,
+        needsReviewCount,
+        periodStart: deduplicated[0]?.date,
+        periodEnd: deduplicated[deduplicated.length - 1]?.date,
+        warnings: allWarnings,
+      },
+      devDebug,
+      debugOcr,
+    });
   } catch (err: any) {
     return NextResponse.json(
       {

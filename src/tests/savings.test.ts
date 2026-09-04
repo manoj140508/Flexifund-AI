@@ -99,4 +99,48 @@ describe('Money-Saving Opportunity Engine & Savings Capacity', () => {
     expect(capacity.minimumMonthlySavings.paise).toBe(0n); // Does not force saving when essential burn absorbs income
     expect(capacity.explanation).toContain('essential living expenses');
   });
+
+  it('detects repeated food delivery & dining moderation opportunity from transaction patterns', () => {
+    const txs: NormalizedTransaction[] = [
+      makeTx('1', '2024-01-01', '25000', 'Swiggy Partner', 'INCOME', 'INCOME'),
+      makeTx('2', '2024-01-03', '450', 'ZOMATO ORDER', 'EXPENSE', 'DISCRETIONARY'),
+      makeTx('3', '2024-01-08', '520', 'SWIGGY FOOD', 'EXPENSE', 'DISCRETIONARY'),
+      makeTx('4', '2024-01-15', '680', 'DOMINOS PIZZA', 'EXPENSE', 'DISCRETIONARY'),
+      makeTx('5', '2024-01-22', '350', 'ZOMATO ORDER', 'EXPENSE', 'DISCRETIONARY'),
+      makeTx('6', '2024-01-10', '5000', 'House Rent', 'EXPENSE', 'ESSENTIAL_HOUSING'),
+    ];
+
+    const income = analyzeIncome(txs);
+    const expenses = analyzeExpenses(txs);
+
+    const opportunities = detectSavingsOpportunities({ incomeAnalysis: income, expenseAnalysis: expenses, transactions: txs });
+    const diningOpp = opportunities.find((o) => o.category === 'REPEATED_DISCRETIONARY_SPEND');
+    expect(diningOpp).toBeDefined();
+    expect(diningOpp?.title).toContain('Food Delivery & Dining Out');
+    expect(diningOpp?.observedSpending?.paise).toBe(200000n); // ₹2,000 total
+    expect(diningOpp?.potentialMonthlySaving?.paise).toBe(50000n); // 25% = ₹500
+    expect(diningOpp?.evidence.sourceTransactionIds.length).toBe(4);
+    expect(diningOpp?.recommendedAction).toContain('weekly takeout cap');
+  });
+
+  it('detects work expense optimization without suggesting eliminating essential transit', () => {
+    const txs: NormalizedTransaction[] = [
+      makeTx('1', '2024-01-01', '30000', 'Uber Driver Payout', 'INCOME', 'INCOME'),
+      makeTx('2', '2024-01-05', '1200', 'INDIAN OIL PETROL', 'EXPENSE', 'WORK_FUEL_TRANSIT'),
+      makeTx('3', '2024-01-12', '1200', 'HPCL PETROL PUMP', 'EXPENSE', 'WORK_FUEL_TRANSIT'),
+      makeTx('4', '2024-01-19', '1200', 'BPCL PETROL', 'EXPENSE', 'WORK_FUEL_TRANSIT'),
+      makeTx('5', '2024-01-26', '1200', 'SHELL PETROL', 'EXPENSE', 'WORK_FUEL_TRANSIT'),
+    ];
+
+    const income = analyzeIncome(txs);
+    const expenses = analyzeExpenses(txs);
+
+    const opportunities = detectSavingsOpportunities({ incomeAnalysis: income, expenseAnalysis: expenses, transactions: txs });
+    const workOpp = opportunities.find((o) => o.category === 'WORK_EXPENSE_OPTIMIZATION');
+    expect(workOpp).toBeDefined();
+    expect(workOpp?.title).toContain('Fuel Cashback');
+    expect(workOpp?.recommendedAction).toContain('IOCL');
+    expect(workOpp?.description).toContain('essential to your livelihood');
+  });
 });
+

@@ -17,12 +17,15 @@
 import catalogData from '../data/schemes-catalog.json';
 
 export type WorkerCategory =
-  | 'GIG_PLATFORM' // Ride-hailing, food delivery, logistics delivery
+  | 'GIG_PLATFORM' // Delivery & drivers general
+  | 'DELIVERY_WORKER' // Food delivery, quick logistics
+  | 'DRIVER' // Ride-hailing, auto, cab drivers
   | 'STREET_VENDOR' // Urban informal retail, vending
   | 'CONSTRUCTION' // Daily wage construction & building workers
   | 'DOMESTIC_WORKER' // Home services, cleaners, cooks
   | 'FREELANCER' // Digital/creative independent contractors
   | 'AGRICULTURAL' // Farm/allied laborers
+  | 'ARTISAN' // Handicrafts, trades
   | 'OTHER_INFORMAL';
 
 export interface UserEligibilityProfile {
@@ -123,6 +126,7 @@ export function getVerifiedCatalog(): BenefitProgram[] {
       maxMonthlyIncomePaise: item.eligibilityRules.maxMonthlyIncomePaise ? Number(item.eligibilityRules.maxMonthlyIncomePaise) : undefined,
       requiresBankAccount: item.eligibilityRules.requiresBankAccount,
       requiresUnorganizedStatus: item.eligibilityRules.requiresUnorganizedStatus,
+      allowedStates: (item.eligibilityRules as any).allowedStates || undefined,
     },
     requiredDocuments: item.requiredDocuments,
     applicationSteps: item.applicationSteps,
@@ -216,6 +220,15 @@ export function evaluateSchemeEligibility(
 
   // 3. Worker Category
   if (crit.allowedWorkerCategories && crit.allowedWorkerCategories.length > 0) {
+    const isCategoryMatched = (userCat?: WorkerCategory, allowed?: WorkerCategory[]): boolean => {
+      if (!userCat || !allowed) return false;
+      if (allowed.includes(userCat)) return true;
+      if ((userCat === 'DELIVERY_WORKER' || userCat === 'DRIVER') && allowed.includes('GIG_PLATFORM')) return true;
+      if (userCat === 'GIG_PLATFORM' && (allowed.includes('DELIVERY_WORKER') || allowed.includes('DRIVER'))) return true;
+      if (userCat === 'ARTISAN' && (allowed.includes('OTHER_INFORMAL') || allowed.includes('STREET_VENDOR'))) return true;
+      return false;
+    };
+
     if (!profile.workerCategory) {
       evaluations.push({
         criterionName: 'Occupation Type',
@@ -225,7 +238,7 @@ export function evaluateSchemeEligibility(
         explanation: 'Work category was not specified.',
       });
       missingInfoList.push('Your occupation category');
-    } else if (crit.allowedWorkerCategories.includes(profile.workerCategory)) {
+    } else if (isCategoryMatched(profile.workerCategory, crit.allowedWorkerCategories)) {
       evaluations.push({
         criterionName: 'Occupation Type',
         status: 'MET',
@@ -233,7 +246,7 @@ export function evaluateSchemeEligibility(
         requiredValue: crit.allowedWorkerCategories.join(', '),
         explanation: `Targeted towards ${profile.workerCategory} workers.`,
       });
-      matchedSummary.push(`Worker category (${profile.workerCategory}) is explicitly covered`);
+      matchedSummary.push(`Worker category (${profile.workerCategory.replace('_', ' ').toLowerCase()}) is explicitly covered`);
     } else {
       evaluations.push({
         criterionName: 'Occupation Type',
@@ -384,11 +397,44 @@ export function evaluateSchemeEligibility(
 }
 
 /**
- * Matches a user profile against the entire verified catalog.
+ * Matches a user profile against the entire verified catalog,
+ * prioritized deterministically by relevance and match strength.
  */
 export function matchCatalogForUser(profile: UserEligibilityProfile): BenefitMatch[] {
   const catalog = getVerifiedCatalog();
-  return catalog.map((program) => evaluateSchemeEligibility(program, profile));
+  const matches = catalog.map((program) => evaluateSchemeEligibility(program, profile));
+
+  const statusWeight: Record<MatchStatus, number> = {
+    LIKELY_MATCH: 4,
+    POSSIBLE_MATCH: 3,
+    MORE_INFO_NEEDED: 2,
+    NOT_MATCHED: 1,
+    POTENTIAL_MATCH: 3,
+    NEEDS_MORE_INFORMATION: 2,
+    DOES_NOT_APPEAR_TO_MATCH: 1,
+  };
+
+  return matches.sort((a, b) => {
+    const diff = statusWeight[b.status] - statusWeight[a.status];
+    if (diff !== 0) return diff;
+
+    // Prioritize programs that specifically match user's state
+    const userState = (profile.state || '').toLowerCase();
+    const aMatchesState = Boolean(
+      userState &&
+        a.program.criteria.allowedStates &&
+        a.program.criteria.allowedStates.map((s) => s.toLowerCase()).includes(userState)
+    );
+    const bMatchesState = Boolean(
+      userState &&
+        b.program.criteria.allowedStates &&
+        b.program.criteria.allowedStates.map((s) => s.toLowerCase()).includes(userState)
+    );
+    if (aMatchesState && !bMatchesState) return -1;
+    if (!aMatchesState && bMatchesState) return 1;
+
+    return a.program.name.localeCompare(b.program.name);
+  });
 }
 
 /**

@@ -235,5 +235,67 @@
     "officialUrl": "https://www.npscra.nsdl.co.in",
     "lastVerifiedDate": "2024-01-15",
     "verificationStatus": "OFFICIALLY_VERIFIED"
+  },
+  {
+    "id": "karnataka_gig_worker_welfare",
+    "name": "Karnataka Platform-Based Gig Workers Welfare Scheme",
+    "organization": "Karnataka State Unorganised Workers Social Security Board",
+    "category": "Worker welfare",
+    "targetWorkerType": "Delivery workers, drivers, quick-commerce partners operating in Karnataka",
+    "jurisdiction": "State (Karnataka)",
+    "description": "State welfare scheme providing comprehensive group accident insurance, hospitalization assistance, and social security for registered platform gig workers in Karnataka.",
+    "potentialBenefit": "₹4,00,000 accidental death/total disability cover + ₹2,00,000 hospital expenses reimbursement fully subsidized by the Government of Karnataka.",
+    "eligibilityRules": {
+      "minAge": 18,
+      "maxAge": 60,
+      "allowedWorkerCategories": ["GIG_PLATFORM", "DELIVERY_WORKER", "DRIVER"],
+      "allowedStates": ["Karnataka"],
+      "requiresUnorganizedStatus": true,
+      "requiresBankAccount": true
+    },
+    "requiredDocuments": [
+      "Aadhaar Card",
+      "Karnataka Delivery/Driver Platform ID (Swiggy, Zomato, Uber, Ola, Zepto, Blinkit, etc.)",
+      "Active Savings Bank Account"
+    ],
+    "applicationSteps": [
+      "Register on the Karnataka Seva Sindhu or Labour Department portal (labour.karnataka.gov.in).",
+      "Submit platform partner ID card and Aadhaar details.",
+      "Receive state-issued Gig Worker Welfare Registration Certificate."
+    ],
+    "officialUrl": "https://labour.karnataka.gov.in",
+    "lastVerifiedDate": "2024-03-01",
+    "verificationStatus": "OFFICIALLY_VERIFIED"
+  },
+  {
+    "id": "rajasthan_gig_worker_welfare",
+    "name": "Rajasthan Platform Based Gig Workers Welfare Board",
+    "organization": "Department of Labour, Government of Rajasthan",
+    "category": "Social Security",
+    "targetWorkerType": "Platform-based delivery workers, ride-hailing drivers in Rajasthan",
+    "jurisdiction": "State (Rajasthan)",
+    "description": "Statutory social security fund established under the Rajasthan Platform Based Gig Workers Act, providing dedicated welfare fee funding, unique worker IDs, and emergency assistance.",
+    "potentialBenefit": "Unique Social Security ID, accident coverage, grievance redressal, and dedicated state social security benefits.",
+    "eligibilityRules": {
+      "minAge": 18,
+      "maxAge": 60,
+      "allowedWorkerCategories": ["GIG_PLATFORM", "DELIVERY_WORKER", "DRIVER"],
+      "allowedStates": ["Rajasthan"],
+      "requiresUnorganizedStatus": true,
+      "requiresBankAccount": true
+    },
+    "requiredDocuments": [
+      "Aadhaar Card",
+      "Platform Aggregator Registration / Driver ID",
+      "Bank Account details in Rajasthan"
+    ],
+    "applicationSteps": [
+      "Aggregators register workers automatically upon onboarding in Rajasthan.",
+      "Worker accesses the portal at labour.rajasthan.gov.in to verify unique worker ID.",
+      "Avail emergency financial aid and social security disbursements."
+    ],
+    "officialUrl": "https://labour.rajasthan.gov.in",
+    "lastVerifiedDate": "2024-02-15",
+    "verificationStatus": "OFFICIALLY_VERIFIED"
   }
 ]

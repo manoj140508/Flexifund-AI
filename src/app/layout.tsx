@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { FinancialDataProvider } from "@/context/FinancialDataContext";
 import { ThemeProvider } from "@/context/ThemeContext";
+import { AuthProvider } from "@/context/AuthContext";
 import AppShell from "@/components/AppShell";
 
 export const metadata: Metadata = {
@@ -60,9 +61,11 @@ export default function RootLayout({
       </head>
       <body className="min-h-screen bg-[#F5FAFF] dark:bg-[#0B1220] text-[#0F2747] dark:text-[#F8FAFC] font-sans antialiased transition-colors duration-200">
         <ThemeProvider>
-          <FinancialDataProvider>
-            <AppShell>{children}</AppShell>
-          </FinancialDataProvider>
+          <AuthProvider>
+            <FinancialDataProvider>
+              <AppShell>{children}</AppShell>
+            </FinancialDataProvider>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>
