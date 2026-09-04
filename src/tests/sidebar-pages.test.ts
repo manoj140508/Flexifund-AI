@@ -64,4 +64,36 @@ describe('Sidebar Features & Data Calculations', () => {
       expect(result.merchant).toContain('RELIANCE SMART');
     });
   });
+
+  describe('My Goals deterministic progress & monthly target logic', () => {
+    it('calculates progress percentage and remaining amount accurately', () => {
+      const targetRupees = 50000;
+      const currentRupees = 15000;
+      const progress = Math.min(100, Math.round((currentRupees / targetRupees) * 100));
+      const remaining = Math.max(0, targetRupees - currentRupees);
+
+      expect(progress).toBe(30);
+      expect(remaining).toBe(35000);
+    });
+
+    it('caps progress at 100% when savings meet or exceed goal', () => {
+      const targetRupees = 20000;
+      const currentRupees = 25000;
+      const progress = Math.min(100, Math.round((currentRupees / targetRupees) * 100));
+      const remaining = Math.max(0, targetRupees - currentRupees);
+
+      expect(progress).toBe(100);
+      expect(remaining).toBe(0);
+    });
+
+    it('calculates required monthly savings to achieve target date', () => {
+      const targetRupees = 60000;
+      const currentRupees = 12000;
+      const remaining = targetRupees - currentRupees; // 48000
+      const months = 6;
+      const monthlyRequired = Math.ceil(remaining / months);
+
+      expect(monthlyRequired).toBe(8000);
+    });
+  });
 });

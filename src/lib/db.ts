@@ -62,9 +62,22 @@ export async function ensureSchema(): Promise<void> {
         created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
 
+      CREATE TABLE IF NOT EXISTS user_goals (
+        id VARCHAR(255) PRIMARY KEY,
+        user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        title VARCHAR(255) NOT NULL,
+        goal_type VARCHAR(64) NOT NULL,
+        target_amount NUMERIC(14, 2) NOT NULL,
+        current_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
+        target_date DATE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+
       CREATE INDEX IF NOT EXISTS idx_users_email ON users(LOWER(email));
       CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
       CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+      CREATE INDEX IF NOT EXISTS idx_user_goals_user_id ON user_goals(user_id);
     `);
   })();
 
