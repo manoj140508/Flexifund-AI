@@ -278,6 +278,122 @@ Completed
     });
   });
 
+  describe('Real GPay Screenshot Test Case (Production Specification)', () => {
+    it('correctly extracts exactly 7 transactions, calculates ₹1,000 income and ₹1,148.08 expenses, and excludes monthly summary header', () => {
+      const realGPayText = `
+September ₹148.08
+3 September
+SWIGGY INSTAMART
+₹117
+Zomato
+₹406.08
+Balasubramani
+₹300
+Vittech Enterprises
+₹125
+2 September
+Vittech Enterprises
+₹100
+1 September
+ELITE BITE
+₹100
+Ganash Vedachalam
++₹1,000
+`;
+
+      const result = parseGPayAndMobileScreenshots(realGPayText);
+      expect(result.success).toBe(true);
+      expect(result.transactions.length).toBe(7);
+
+      // Verify September ₹148.08 is excluded
+      const monthlySummaryTx = result.transactions.find((t) => t.amountPaise === '14808' && t.description.toLowerCase().includes('september'));
+      expect(monthlySummaryTx).toBeUndefined();
+
+      // Check incomes
+      const incomeTxs = result.transactions.filter((t) => t.type === 'CREDIT');
+      expect(incomeTxs.length).toBe(1);
+      expect(incomeTxs[0].description).toBe('Ganash Vedachalam');
+      expect(incomeTxs[0].amountPaise).toBe('100000'); // ₹1,000
+      expect(incomeTxs[0].date).toMatch(/-09-01$/);
+
+      // Check expenses
+      const expenseTxs = result.transactions.filter((t) => t.type === 'DEBIT');
+      expect(expenseTxs.length).toBe(6);
+
+      // Calculate total expenses
+      const totalExpensePaise = expenseTxs.reduce((acc, t) => acc + BigInt(t.amountPaise), 0n);
+      expect(totalExpensePaise).toBe(114808n); // ₹1,148.08
+
+      // Check specific transactions
+      const swiggy = result.transactions.find((t) => t.description.toUpperCase().includes('SWIGGY'));
+      expect(swiggy).toBeDefined();
+      expect(swiggy?.amountPaise).toBe('11700');
+      expect(swiggy?.type).toBe('DEBIT');
+      expect(swiggy?.date).toMatch(/-09-03$/);
+
+      const zomato = result.transactions.find((t) => t.description.includes('Zomato'));
+      expect(zomato).toBeDefined();
+      expect(zomato?.amountPaise).toBe('40608');
+      expect(zomato?.type).toBe('DEBIT');
+      expect(zomato?.date).toMatch(/-09-03$/);
+
+      const balasubramani = result.transactions.find((t) => t.description.includes('Balasubramani'));
+      expect(balasubramani).toBeDefined();
+      expect(balasubramani?.amountPaise).toBe('30000');
+      expect(balasubramani?.type).toBe('DEBIT');
+      expect(balasubramani?.date).toMatch(/-09-03$/);
+
+      const vittech3 = result.transactions.find((t) => t.description.includes('Vittech') && t.amountPaise === '12500');
+      expect(vittech3).toBeDefined();
+      expect(vittech3?.date).toMatch(/-09-03$/);
+
+      const vittech2 = result.transactions.find((t) => t.description.includes('Vittech') && t.amountPaise === '10000');
+      expect(vittech2).toBeDefined();
+      expect(vittech2?.date).toMatch(/-09-02$/);
+
+      const eliteBite = result.transactions.find((t) => t.description.includes('ELITE BITE'));
+      expect(eliteBite).toBeDefined();
+      expect(eliteBite?.amountPaise).toBe('10000');
+      expect(eliteBite?.date).toMatch(/-09-01$/);
+    });
+
+    it('correctly handles spatial bounding boxes for the real GPay layout', () => {
+      const spatialLines: SpatialOcrLine[] = [
+        { text: 'September ₹148.08', bbox: { x0: 20, y0: 30, x1: 300, y1: 55 }, confidence: 95 },
+        { text: '3 September', bbox: { x0: 20, y0: 70, x1: 150, y1: 90 }, confidence: 92 },
+        { text: 'SWIGGY INSTAMART', bbox: { x0: 20, y0: 100, x1: 250, y1: 120 }, confidence: 96 },
+        { text: '₹117', bbox: { x0: 320, y0: 100, x1: 380, y1: 120 }, confidence: 98 },
+        { text: 'Zomato', bbox: { x0: 20, y0: 140, x1: 120, y1: 160 }, confidence: 96 },
+        { text: '₹406.08', bbox: { x0: 300, y0: 140, x1: 380, y1: 160 }, confidence: 97 },
+        { text: 'Balasubramani', bbox: { x0: 20, y0: 180, x1: 180, y1: 200 }, confidence: 94 },
+        { text: '₹300', bbox: { x0: 320, y0: 180, x1: 380, y1: 200 }, confidence: 98 },
+        { text: 'Vittech Enterprises', bbox: { x0: 20, y0: 220, x1: 220, y1: 240 }, confidence: 95 },
+        { text: '₹125', bbox: { x0: 320, y0: 220, x1: 380, y1: 240 }, confidence: 98 },
+        { text: '2 September', bbox: { x0: 20, y0: 260, x1: 150, y1: 280 }, confidence: 93 },
+        { text: 'Vittech Enterprises', bbox: { x0: 20, y0: 290, x1: 220, y1: 310 }, confidence: 95 },
+        { text: '₹100', bbox: { x0: 320, y0: 290, x1: 380, y1: 310 }, confidence: 98 },
+        { text: '1 September', bbox: { x0: 20, y0: 330, x1: 150, y1: 350 }, confidence: 92 },
+        { text: 'ELITE BITE', bbox: { x0: 20, y0: 360, x1: 140, y1: 380 }, confidence: 96 },
+        { text: '₹100', bbox: { x0: 320, y0: 360, x1: 380, y1: 380 }, confidence: 98 },
+        { text: 'Ganash Vedachalam', bbox: { x0: 20, y0: 400, x1: 220, y1: 420 }, confidence: 95 },
+        { text: '+₹1,000', bbox: { x0: 300, y0: 400, x1: 380, y1: 420 }, confidence: 97 },
+      ];
+
+      const result = parseGPaySpatialBlocks(spatialLines);
+      expect(result.success).toBe(true);
+      expect(result.transactions.length).toBe(7);
+
+      const incomeTxs = result.transactions.filter((t) => t.type === 'CREDIT');
+      expect(incomeTxs.length).toBe(1);
+      expect(incomeTxs[0].amountPaise).toBe('100000');
+
+      const expenseTxs = result.transactions.filter((t) => t.type === 'DEBIT');
+      expect(expenseTxs.length).toBe(6);
+      const totalExpensePaise = expenseTxs.reduce((acc, t) => acc + BigInt(t.amountPaise), 0n);
+      expect(totalExpensePaise).toBe(114808n);
+    });
+  });
+
   describe('Unreadable Image Safety (Requirement 22 & 23)', () => {
     it('fails cleanly with friendly error and zero fake transactions', () => {
       const unreadableText = `

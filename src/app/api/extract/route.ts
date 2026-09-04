@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import fs from 'fs';
+import path from 'path';
 import {
   parseBankStatementText,
   parseGPaySpatialBlocks,
@@ -9,6 +11,26 @@ import {
 } from '@/lib/statement-extractor';
 
 export const dynamic = 'force-dynamic';
+
+function ensureTessDataInTmp() {
+  const tmpTessData = '/tmp/eng.traineddata';
+  try {
+    if (!fs.existsSync(tmpTessData)) {
+      const candidates = [
+        path.join(process.cwd(), 'src/data/tessdata/eng.traineddata'),
+        path.join(process.cwd(), 'public/tessdata/eng.traineddata'),
+      ];
+      for (const p of candidates) {
+        if (fs.existsSync(p)) {
+          fs.copyFileSync(p, tmpTessData);
+          break;
+        }
+      }
+    }
+  } catch {
+    // Non-fatal, tesseract will download to /tmp if writeable
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -141,16 +163,23 @@ export async function POST(req: NextRequest) {
         pagesProcessed = textResult.total || textResult.pages?.length || 1;
         await parser.destroy();
 
-        // If scanned PDF produced insufficient text, try OCR
+        // If scanned PDF produced insufficient text, try OCR with timeout
         if (!rawText || rawText.trim().length < 20) {
           try {
-            const path = await import('path');
-            const workerPath = path.resolve(process.cwd(), 'node_modules/tesseract.js/src/worker-script/node/index.js');
+            ensureTessDataInTmp();
             const { createWorker } = await import('tesseract.js');
-            const worker = await createWorker('eng', 1, { workerPath, errorHandler: () => {} });
+            const worker = await createWorker('eng', 1, {
+              cachePath: '/tmp',
+              cacheMethod: 'write',
+              errorHandler: () => {},
+            });
             try {
-              const ocrResult = await worker.recognize(buffer);
-              if (ocrResult.data.text && ocrResult.data.text.trim().length > rawText.trim().length) {
+              const ocrPromise = worker.recognize(buffer);
+              const timeoutPromise = new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error('PDF OCR timeout')), 20000)
+              );
+              const ocrResult: any = await Promise.race([ocrPromise, timeoutPromise]);
+              if (ocrResult?.data?.text && ocrResult.data.text.trim().length > rawText.trim().length) {
                 rawText = ocrResult.data.text;
               }
             } finally {
@@ -213,10 +242,6 @@ export async function POST(req: NextRequest) {
     let lastSpatialLines: SpatialOcrLine[] = [];
     let lastImageMeta: any = null;
 
-    const path = await import('path');
-    const workerPath = path.resolve(process.cwd(), 'node_modules/tesseract.js/src/worker-script/node/index.js');
-    const { createWorker } = await import('tesseract.js');
-
     // Process each uploaded screenshot
     for (const imageFile of validFiles) {
       let worker: any = null;
@@ -235,27 +260,40 @@ export async function POST(req: NextRequest) {
           return NextResponse.json(
             {
               success: false,
-              errorMessage: `The file "${imageFile.name}" could not be decoded as an image. Please upload a valid PNG, JPG, or WEBP screenshot.`,
+              errorMessage: "We couldn't read transactions from this image. Try a clearer screenshot or upload a PDF/CSV statement.",
             },
             { status: 422 }
           );
         }
 
-        // Check for tiny / unreadable thumbnail images (Requirement 18)
+        // Check for tiny / unreadable thumbnail images
         if ((metadata.width && metadata.width < 200) || (metadata.height && metadata.height < 200)) {
           return NextResponse.json(
             {
               success: false,
-              errorMessage: `This screenshot may be too small (${metadata.width}×${metadata.height}) to read clearly. Try uploading the original screenshot instead of a compressed copy.`,
+              errorMessage: "We couldn't read transactions from this image. Try a clearer screenshot or upload a PDF/CSV statement.",
             },
             { status: 422 }
           );
         }
 
-        // C: Preprocessing
-        // If image is low-res (< 900px), upscale mildly to 1000px so small fonts are crisp.
-        // If already >= 900px, keep native resolution so large typography does not exceed OCR limits.
+        // C: Preprocessing with contrast & dark-mode handling
         let sharpBuilder = sharp(imgBuffer).rotate();
+
+        // Dark-mode detection: invert if dark background so OCR sees dark text on light background
+        try {
+          const stats = await sharp(imgBuffer).stats();
+          if (stats && Array.isArray(stats.channels) && stats.channels.length >= 3) {
+            const avgBrightness =
+              (stats.channels[0].mean + stats.channels[1].mean + stats.channels[2].mean) / 3;
+            if (avgBrightness < 115) {
+              sharpBuilder = sharpBuilder.negate({ alpha: false });
+            }
+          }
+        } catch {
+          // Non-fatal, proceed with standard preprocessing
+        }
+
         if (metadata.width && metadata.width < 900) {
           sharpBuilder = sharpBuilder.resize({ width: 1000, withoutEnlargement: false });
         }
@@ -266,15 +304,23 @@ export async function POST(req: NextRequest) {
           .png()
           .toBuffer();
 
-        worker = await createWorker('eng', 1, { workerPath, errorHandler: () => {} });
+        // D & E: Execute OCR with 25-second server-side timeout covering worker setup & recognition
+        const ocrExecution = async () => {
+          ensureTessDataInTmp();
+          const { createWorker } = await import('tesseract.js');
+          worker = await createWorker('eng', 1, {
+            cachePath: '/tmp',
+            cacheMethod: 'write',
+            errorHandler: () => {},
+          });
+          return await worker.recognize(processedImgBuffer, {}, { blocks: true });
+        };
 
-        // D & E: Execute OCR with blocks enabled for spatial bounding boxes
-        const ocrPromise = worker.recognize(processedImgBuffer, {}, { blocks: true });
         const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('OCR processing timed out after 30 seconds')), 30000)
+          setTimeout(() => reject(new Error('OCR processing timed out after 25 seconds')), 25000)
         );
 
-        const ocrResult: any = await Promise.race([ocrPromise, timeoutPromise]);
+        const ocrResult: any = await Promise.race([ocrExecution(), timeoutPromise]);
         const extractedText = ocrResult?.data?.text || '';
         lastRawOcrText = extractedText;
 
@@ -311,6 +357,7 @@ export async function POST(req: NextRequest) {
           try {
             await worker.terminate();
           } catch {}
+          worker = null;
         }
       }
     }
@@ -379,10 +426,10 @@ export async function POST(req: NextRequest) {
             totalDetected: 0,
             highConfidenceCount: 0,
             needsReviewCount: 0,
-            warnings: allWarnings.length > 0 ? allWarnings : ["We couldn't read the transactions in this screenshot."],
+            warnings: allWarnings.length > 0 ? allWarnings : ["We couldn't read transactions from this image."],
           },
           errorMessage:
-            "We couldn't read the transactions in this screenshot. Try a clearer GPay screenshot with transaction dates, names and amounts visible.",
+            "We couldn't read transactions from this image. Try a clearer screenshot or upload a PDF/CSV statement.",
           devDebug,
           debugOcr,
         },

@@ -1,5 +1,67 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { hashPassword, verifyPassword, generateSessionToken } from '@/lib/auth/password';
+
+// Hoist mock state so it is accessible inside vi.mock factory
+const { mockUsers, mockSessions } = vi.hoisted(() => ({
+  mockUsers: [] as any[],
+  mockSessions: [] as any[],
+}));
+
+  vi.mock('@/lib/db', () => ({
+    query: vi.fn(async (sql: string, params: any[] = []) => {
+      const normalizedSql = sql.replace(/\s+/g, ' ');
+
+      if (normalizedSql.includes('INSERT INTO users')) {
+        const [id, fullName, email, passwordHash, createdAt] = params;
+        const existing = mockUsers.find((u) => u.email.toLowerCase() === email.toLowerCase());
+        if (existing) {
+          const err: any = new Error('duplicate key value violates unique constraint');
+          err.code = '23505';
+          throw err;
+        }
+        const user = { id, full_name: fullName, email, password_hash: passwordHash, created_at: createdAt };
+        mockUsers.push(user);
+        return { rows: [user] };
+      }
+
+      if (normalizedSql.includes('FROM users') && normalizedSql.includes('LOWER(email) = LOWER($1)')) {
+        const email = params[0];
+        const user = mockUsers.find((u) => u.email.toLowerCase() === email.toLowerCase());
+        return { rows: user ? [user] : [] };
+      }
+
+      if (normalizedSql.includes('FROM users') && normalizedSql.includes('WHERE id = $1')) {
+        const id = params[0];
+        const user = mockUsers.find((u) => u.id === id);
+        return { rows: user ? [user] : [] };
+      }
+
+      if (normalizedSql.includes('INSERT INTO sessions')) {
+        const [token, userId, expiresAt, createdAt] = params;
+        const session = { token, user_id: userId, expires_at: expiresAt, created_at: createdAt };
+        mockSessions.push(session);
+        return { rows: [session] };
+      }
+
+      if (normalizedSql.toUpperCase().startsWith('DELETE FROM SESSIONS')) {
+        const token = params[0];
+        const idx = mockSessions.findIndex((s) => s.token === token);
+        if (idx >= 0) mockSessions.splice(idx, 1);
+        return { rows: [] };
+      }
+
+      if (normalizedSql.toUpperCase().includes('SELECT TOKEN') && normalizedSql.toUpperCase().includes('FROM SESSIONS')) {
+        const token = params[0];
+        const now = Date.now();
+        const session = mockSessions.find((s) => s.token === token && new Date(s.expires_at).getTime() > now);
+        return { rows: session ? [session] : [] };
+      }
+
+      return { rows: [] };
+    }),
+    ensureSchema: vi.fn(async () => {}),
+  }));
+
 import {
   createUser,
   getUserByEmail,

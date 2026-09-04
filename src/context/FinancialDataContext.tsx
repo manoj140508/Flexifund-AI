@@ -275,6 +275,8 @@ export function FinancialDataProvider({ children }: { children: React.ReactNode 
   const extractStatement = async (files: File | File[], sourceType: StatementSourceType): Promise<StatementExtractionResult> => {
     setIsLoading(true);
     setError(null);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
     try {
       const formData = new FormData();
       const fileList = Array.isArray(files) ? files : [files];
@@ -286,13 +288,14 @@ export function FinancialDataProvider({ children }: { children: React.ReactNode 
       const res = await fetch('/api/extract', {
         method: 'POST',
         body: formData,
+        signal: controller.signal,
       });
 
       const data: StatementExtractionResult = await res.json();
 
       if (!res.ok || !data.success) {
         const errorObj: any = new Error(
-          data.errorMessage || "We couldn't read the transactions in this screenshot."
+          data.errorMessage || "We couldn't read transactions from this image. Try a clearer screenshot or upload a PDF/CSV statement."
         );
         errorObj.devDebug = data.devDebug;
         errorObj.debugOcr = data.debugOcr;
@@ -300,12 +303,20 @@ export function FinancialDataProvider({ children }: { children: React.ReactNode 
       }
 
       setExtractedDraft(data);
-      setIsLoading(false);
       return data;
     } catch (err: any) {
-      setError(err.message || 'Failed to extract bank statement.');
+      const isAbort = err.name === 'AbortError' || controller.signal.aborted;
+      const displayMsg = isAbort
+        ? "We couldn't read transactions from this image. Try a clearer screenshot or upload a PDF/CSV statement."
+        : (err.message || "We couldn't read transactions from this image. Try a clearer screenshot or upload a PDF/CSV statement.");
+      setError(displayMsg);
+      const wrappedErr: any = new Error(displayMsg);
+      wrappedErr.devDebug = err?.devDebug;
+      wrappedErr.debugOcr = err?.debugOcr;
+      throw wrappedErr;
+    } finally {
+      clearTimeout(timeoutId);
       setIsLoading(false);
-      throw err;
     }
   };
 

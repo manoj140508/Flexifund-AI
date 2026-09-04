@@ -97,6 +97,11 @@ export function parseDateWithMetadata(dateStr: string, fallbackYear?: number): P
   // Strip bullets, commas, and excess delimiters
   clean = clean.replace(/[•\|\,]/g, ' ').replace(/\s+/g, ' ').trim();
 
+  // Reject strings that are primarily amounts or summaries
+  if (/\.\d{2}\b/.test(clean) || /[₹$¥£€]/.test(clean) || /^(?:total\s*spent|spent|balance)/i.test(clean)) {
+    return null;
+  }
+
   // Relative dates: Today / Yesterday
   if (/^today$/i.test(clean)) {
     return { isoDate: new Date().toISOString().slice(0, 10), hasExplicitYear: true };
@@ -107,32 +112,38 @@ export function parseDateWithMetadata(dateStr: string, fallbackYear?: number): P
     return { isoDate: d.toISOString().slice(0, 10), hasExplicitYear: true };
   }
 
-  // Format 1: Embedded DD Mon YYYY or DD Mon (e.g. "12 Aug 2026", "14 Aug", "14 August 2026")
-  const monMatch = clean.match(/(\d{1,2})\s+([a-zA-Z]{3,9})(?:\s+(\d{2,4}))?/);
+  // Format 1: Embedded DD Mon YYYY or DD Mon (e.g. "12 Aug 2026", "14 Aug", "14 August 2026", "1September")
+  const monMatch = clean.match(/(\d{1,2})\s*([a-zA-Z]{3,9})\b(?:\s+(\d{2,4}))?/i);
   if (monMatch) {
-    const d = monMatch[1].padStart(2, '0');
-    const mStr = monMatch[2].toLowerCase();
-    const m = MONTH_MAP[mStr];
-    if (m) {
-      let y = monMatch[3];
-      const hasExplicitYear = Boolean(y && y.length === 4);
-      if (!y) y = currentYear.toString();
-      else if (y.length === 2) y = parseInt(y, 10) > 70 ? `19${y}` : `20${y}`;
-      return { isoDate: `${y}-${m}-${d}`, hasExplicitYear };
+    const dayVal = parseInt(monMatch[1], 10);
+    if (dayVal >= 1 && dayVal <= 31) {
+      const d = monMatch[1].padStart(2, '0');
+      const mStr = monMatch[2].toLowerCase();
+      const m = MONTH_MAP[mStr];
+      if (m) {
+        let y = monMatch[3];
+        const hasExplicitYear = Boolean(y && y.length === 4);
+        if (!y) y = currentYear.toString();
+        else if (y.length === 2) y = parseInt(y, 10) > 70 ? `19${y}` : `20${y}`;
+        return { isoDate: `${y}-${m}-${d}`, hasExplicitYear };
+      }
     }
   }
 
   // Format 2: Embedded Mon DD YYYY or Mon DD (e.g. "Aug 14, 2026", "August 14")
-  const revMatch = clean.match(/([a-zA-Z]{3,9})\s+(\d{1,2})(?:\s+(\d{2,4}))?/);
+  const revMatch = clean.match(/\b([a-zA-Z]{3,9})\b\s+(\d{1,2})(?:\s+(\d{2,4}))?/i);
   if (revMatch) {
-    const mStr = revMatch[1].toLowerCase();
-    const m = MONTH_MAP[mStr];
-    const d = revMatch[2].padStart(2, '0');
-    if (m) {
-      let y = revMatch[3];
-      const hasExplicitYear = Boolean(y && y.length === 4);
-      if (!y) y = currentYear.toString();
-      return { isoDate: `${y}-${m}-${d}`, hasExplicitYear };
+    const dayVal = parseInt(revMatch[2], 10);
+    if (dayVal >= 1 && dayVal <= 31) {
+      const mStr = revMatch[1].toLowerCase();
+      const m = MONTH_MAP[mStr];
+      const d = revMatch[2].padStart(2, '0');
+      if (m) {
+        let y = revMatch[3];
+        const hasExplicitYear = Boolean(y && y.length === 4);
+        if (!y) y = currentYear.toString();
+        return { isoDate: `${y}-${m}-${d}`, hasExplicitYear };
+      }
     }
   }
 
@@ -221,7 +232,9 @@ export function extractCandidateAmounts(line: string, rawDate?: string, strictCo
       const hasPaymentWord = /(?:paid|sent|received|debited|credited|cashback|refund|payout|cr|dr|credit|debit|deposit|withdrawal|payment|completed|success|transfer)/i.test(line);
       const isFormattedMoney = /[0-9]{1,3}(?:,[0-9]{2,3})+(?:\.[0-9]{2})?|[0-9]+\.[0-9]{2}/.test(raw);
 
-      if (!hasCurrency && !hasSign && !hasPaymentWord && !isFormattedMoney) {
+      const isLineEndingAmount = /\s+[0-9]{2,6}(?:\.[0-9]{2})?$/.test(line) && !parseDateWithMetadata(line);
+
+      if (!hasCurrency && !hasSign && !hasPaymentWord && !isFormattedMoney && !isLineEndingAmount) {
         continue; // Reject numbers without monetary context
       }
     }
@@ -246,7 +259,7 @@ export function extractCandidateAmounts(line: string, rawDate?: string, strictCo
  * If remaining description is unclear/empty, returns "Unclear merchant".
  */
 export function cleanMerchantDescription(rawDesc: string): string {
-  const cleaned = rawDesc
+  let cleaned = rawDesc
     .replace(/^(?:paid\s*to|payment\s*to|sent\s*to|transferred\s*to|debited\s*for|money\s*sent\s*to)\s+/i, '')
     .replace(/^(?:received\s*from|money\s*received\s*from|credited\s*from|cashback\s*from|refund\s*from)\s+/i, '')
     .replace(/^(?:to:|from:|banking\s*name:|name:)\s*/i, '')
@@ -257,6 +270,15 @@ export function cleanMerchantDescription(rawDesc: string): string {
     .replace(/[₹$¥£€,]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
+
+  // Strip icon prefixes / noise characters from start: e.g. ©, ®, &, (1), §, =, iE), (E), etc.
+  cleaned = cleaned.replace(/^(?:[©®&§\=\(\)\d\.\,\-\+]|[a-zA-Z0-9\(\)\=\.\,\-]+\))\s*/, '').trim();
+
+  // If starts with single letter followed by word starting with same letter (e.g. "B Balasubramani", "G Ganash")
+  cleaned = cleaned.replace(/^([A-Za-z])\s+(?=[A-Za-z])/i, '').trim();
+
+  // Strip 1-3 lowercase / symbol artifacts before a capital word (e.g. "te Zomato", "ome Zomato", "vo Vittechnovit", "iE ELITE")
+  cleaned = cleaned.replace(/^(?:[a-z]{1,3}|p\s*V|iE|4\s*V)\s+(?=[A-Z])/i, '').trim();
 
   // If entirely stripped, too short, or app name, use unclear fallback (do not hallucinate)
   if (!cleaned || cleaned.length < 2 || /^[^a-zA-Z0-9]+$/.test(cleaned) || /^(?:google\s*pay|gpay|paytm|phonepe)$/i.test(cleaned)) {
@@ -300,37 +322,70 @@ export function deduplicateExtractedTransactions(
  * currency glyphs before parsing (e.g. ₹ misread as '3', '¥', '£', '€', 'E' or 'z').
  */
 export function preprocessOcrLine(rawText: string): { cleanedText: string; substitutedRupee: boolean } {
-  let cleanedText = rawText;
+  let cleanedText = rawText.trim();
   let substitutedRupee = false;
 
-  // Case 1: Tesseract reads '₹' as '3' immediately after payment action keyword, e.g. "Paid 3420" -> "Paid ₹420"
-  if (/(?:paid|received|sent|credited|debited)\s*(?:to|from)?\s*3(?=[1-9][0-9]{1,5}\b)/i.test(cleanedText)) {
-    cleanedText = cleanedText.replace(/(paid|received|sent|credited|debited)(\s*(?:to|from)?\s*)3(?=[1-9][0-9]{1,5}\b)/gi, '$1$2₹');
+  // Case 1: Tesseract reads '₹' as '3', '2', or '%' after +/- sign e.g. "+ 31,000", "+31,000", "+ 3%1,000", "+21,000"
+  if (/([+-])\s*[32%]\s*(?=[1-9][0-9]*(?:,[0-9]+)*\b)/i.test(cleanedText)) {
+    cleanedText = cleanedText.replace(/([+-])\s*[32%]\s*(?=[1-9][0-9]*(?:,[0-9]+)*\b)/gi, '$1 ₹');
     substitutedRupee = true;
   }
 
-  // Case 2: Tesseract reads '₹' as '3' immediately after +/- sign, e.g. "+31,500" -> "+₹1,500"
-  if (/([+-])\s*3(?=[1-9][0-9]{1,5}\b)/i.test(cleanedText)) {
-    cleanedText = cleanedText.replace(/([+-])\s*3(?=[1-9][0-9]{1,5}\b)/gi, '$1 ₹');
+  // Case 2: Tesseract reads '₹' as '3' or '2' immediately after payment action keyword, e.g. "Paid 3420" -> "Paid ₹420"
+  if (/(?:paid|received|sent|credited|debited)\s*(?:to|from)?\s*[32](?=[1-9][0-9]{1,5}\b)/i.test(cleanedText)) {
+    cleanedText = cleanedText.replace(/(paid|received|sent|credited|debited)(\s*(?:to|from)?\s*)[32](?=[1-9][0-9]{1,5}\b)/gi, '$1$2₹');
     substitutedRupee = true;
   }
 
-  // Case 3: Tesseract reads '₹' as 'z' or '?' or 'E'
-  if (/(?:paid|received|sent|credited|debited)\s*(?:to|from)?\s*[z\?E]\s*([0-9]+)/i.test(cleanedText)) {
-    cleanedText = cleanedText.replace(/(paid|received|sent|credited|debited)(\s*(?:to|from)?\s*)[z\?E]\s*([0-9]+)/gi, '$1$2₹$3');
+  // Case 3: 4 digits before decimal starting with 3 or 2 without comma: e.g. "3406.08" -> "₹406.08", "3148.08" -> "₹148.08"
+  if (/(^|\s)[32](?=[0-9]{3}\.[0-9]{2}\b)/.test(cleanedText)) {
+    cleanedText = cleanedText.replace(/(^|\s)[32](?=[0-9]{3}\.[0-9]{2}\b)/g, '$1₹');
     substitutedRupee = true;
   }
 
-  // Case 4: Tesseract reads '₹' as Latin currency symbols '¥', '£', '€'
+  // Case 4: 4 digits integer starting with 3 or 2 without comma: e.g. "3300" -> "₹300", "2125" -> "₹125", "2100" -> "₹100"
+  // Exclude years (2020 - 2035)
+  if (/(^|\s)[32](?=[0-9]{3}\b)/.test(cleanedText)) {
+    cleanedText = cleanedText.replace(/(^|\s)([32])(?=[0-9]{3}\b)/g, (match, prefix, digit, offset, str) => {
+      const fullNum = str.slice(offset + prefix.length, offset + prefix.length + 4);
+      const num = parseInt(fullNum, 10);
+      if (num >= 2020 && num <= 2035) {
+        return match; // Keep year as is
+      }
+      substitutedRupee = true;
+      return prefix + '₹';
+    });
+  }
+
+  // Case 5: Tesseract reads '₹' as 'z', '?', 'E', or 'M'
+  if (/(^|\s)[\?zEM](?=[0-9]{2,6}\b)/i.test(cleanedText)) {
+    cleanedText = cleanedText.replace(/(^|\s)[\?zEM](?=[0-9]{2,6}\b)/gi, '$1₹');
+    substitutedRupee = true;
+  }
+
+  // Case 6: Tesseract reads '₹' as Latin currency symbols '¥', '£', '€'
   if (/[¥£€]/.test(cleanedText)) {
     cleanedText = cleanedText.replace(/[¥£€]/g, '₹');
     substitutedRupee = true;
   }
 
-  // Case 5: Standalone amount line where '₹' was read as '3', e.g. "3540.00", "3500", "31,200"
+  // Case 7: Standalone amount at the end of line after merchant name e.g. "SWIGGY INSTAMART 117"
+  if (/\s+[1-9][0-9]{1,4}(?:\.[0-9]{2})?$/.test(cleanedText) && !/[₹$¥£€]/.test(cleanedText)) {
+    const isDate = parseDateWithMetadata(cleanedText);
+    if (!isDate) {
+      cleanedText = cleanedText.replace(/\s+([1-9][0-9]{1,4}(?:\.[0-9]{2})?)$/, ' ₹$1');
+      substitutedRupee = true;
+    }
+  }
+
+  // Case 8: Standalone amount line where '₹' was read as '3', e.g. "3540.00", "3500", "31,200"
   if (/^\s*3(?=[1-9][0-9]{0,2}(?:,[0-9]{2,3})+(?:\.[0-9]{2})?|[1-9][0-9]{1,5}(?:\.[0-9]{2})?\b)/.test(cleanedText)) {
-    cleanedText = cleanedText.replace(/^\s*3(?=[1-9])/, '₹');
-    substitutedRupee = true;
+    const numMatch = cleanedText.match(/^\s*3([0-9]{4,})/);
+    const num = numMatch ? parseInt(numMatch[1].slice(0, 4), 10) : 0;
+    if (!(num >= 2020 && num <= 2035)) {
+      cleanedText = cleanedText.replace(/^\s*3(?=[1-9])/, '₹');
+      substitutedRupee = true;
+    }
   }
 
   return { cleanedText, substitutedRupee };
@@ -375,20 +430,33 @@ export function parseGPaySpatialBlocks(
   const creditKeywords = /\b(received|received\s*from|money\s*received|credited|cashback|refund|deposit|cr|credit|payout)\b|^\s*\+/i;
   const debitKeywords = /\b(paid|paid\s*to|sent|sent\s*to|payment\s*to|transferred\s*to|debited|bill\s*paid|dr|debit|withdrawal)\b|^\s*\-/i;
 
+  // Preprocess all lines first to clean glyphs and fix common OCR artifacts
+  for (let i = 0; i < sortedLines.length; i++) {
+    const { cleanedText } = preprocessOcrLine(sortedLines[i].text);
+    sortedLines[i].text = cleanedText;
+  }
+
   // 1. Scan for Global Year in the document
   let globalYear: number | null = null;
   for (const l of sortedLines) {
-    const mMatch = l.text.match(/(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{4})/i);
+    const trimmed = l.text.trim();
+    // Standalone 4-digit year line (e.g. "2026")
+    const standaloneYear = trimmed.match(/^(?:202[0-9]|203[0-5])$/);
+    if (standaloneYear) {
+      globalYear = parseInt(standaloneYear[0], 10);
+      break;
+    }
+    const mMatch = l.text.match(/(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+(202[0-9]|203[0-5])\b/i);
     if (mMatch) {
       globalYear = parseInt(mMatch[1], 10);
       break;
     }
-    const fullDateMatch = l.text.match(/\b\d{1,2}[\/\-\.]\d{1,2}[\/\-\.](\d{4})\b/);
+    const fullDateMatch = l.text.match(/\b\d{1,2}[\/\-\.]\d{1,2}[\/\-\.](202[0-9]|203[0-5])\b/);
     if (fullDateMatch) {
       globalYear = parseInt(fullDateMatch[1], 10);
       break;
     }
-    const monYearMatch = l.text.match(/\b\d{1,2}\s+[a-zA-Z]{3,9}\s+(\d{4})\b/);
+    const monYearMatch = l.text.match(/\b\d{1,2}\s+[a-zA-Z]{3,9}\s+(202[0-9]|203[0-5])\b/);
     if (monYearMatch) {
       globalYear = parseInt(monYearMatch[1], 10);
       break;
@@ -397,6 +465,33 @@ export function parseGPaySpatialBlocks(
 
   const effectiveYear = globalYear || new Date().getFullYear();
   const hasGlobalYear = globalYear !== null;
+
+  // Helper: check if a line is a monthly summary or account balance header
+  const isMonthlySummaryHeader = (text: string): boolean => {
+    const trimmed = text.trim();
+    const isMonthAmount = /^(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|january|february|march|april|may|june|july|august|september|october|november|december)(?:\s+\d{4})?\s*(?:[₹$¥£€\?zM32]|rs\.?)?\s*[\d,]+(?:\.\d{2})?$/i.test(trimmed);
+    const hasSummaryKeywords = /(?:total\s*spent|spent\s*in|monthly\s*total|account\s*balance|available\s*balance|closing\s*balance|spent\s*this\s*month)/i.test(trimmed);
+    return isMonthAmount || hasSummaryKeywords;
+  };
+
+  // Pre-calculate running active section date for every line in the document based on preceding date headers
+  const lineDates: Array<{ isoDate: string; hasExplicitYear: boolean } | null> = new Array(sortedLines.length).fill(null);
+  let currentRunningDate: { isoDate: string; hasExplicitYear: boolean } | null = null;
+
+  for (let i = 0; i < sortedLines.length; i++) {
+    const lText = sortedLines[i].text.trim();
+    if (!isMonthlySummaryHeader(lText)) {
+      const parsed = parseDateWithMetadata(lText, effectiveYear);
+      if (parsed) {
+        currentRunningDate = parsed;
+        lineDates[i] = parsed;
+      } else if (currentRunningDate) {
+        lineDates[i] = currentRunningDate;
+      }
+    } else if (currentRunningDate) {
+      lineDates[i] = currentRunningDate;
+    }
+  }
 
   // 2. Identify all line indices with strict amount candidates
   interface AmountAnchor {
@@ -416,6 +511,21 @@ export function parseGPaySpatialBlocks(
 
     // Skip pure noise or UPI reference lines
     if (/^(?:upi\s*transaction\s*id|google\s*transaction\s*id|bank\s*reference\s*no|ref\s*no|to:|from:)/i.test(text)) {
+      continue;
+    }
+
+    // Exclude monthly summary / balance headers (e.g. "September ₹148.08", "September 3148.08", "Total spent: ₹...")
+    if (isMonthlySummaryHeader(text)) {
+      continue;
+    }
+
+    // Exclude standalone year headers (e.g. "2026")
+    if (/^(?:202[0-9]|203[0-5])$/.test(text.trim())) {
+      continue;
+    }
+
+    // Exclude standalone date headers that do not have transaction text
+    if (parseDateWithMetadata(text, effectiveYear) && !/[₹$¥£€]|rs\.?|paid|received|sent|credited|debited|\+/i.test(text)) {
       continue;
     }
 
@@ -440,6 +550,8 @@ export function parseGPaySpatialBlocks(
   if (amountAnchors.length === 0 && sortedLines.length > 0) {
     for (let i = 0; i < sortedLines.length; i++) {
       const item = sortedLines[i];
+      if (isMonthlySummaryHeader(item.text)) continue;
+      if (/^(?:202[0-9]|203[0-5])$/.test(item.text.trim())) continue;
       // Skip if this line contains a date, timestamp, UPI ID, or account number
       if (parseDateWithMetadata(item.text, effectiveYear)) continue;
       if (/^(?:upi\s*transaction\s*id|google\s*transaction\s*id|to:|from:|banking|call)/i.test(item.text)) continue;
@@ -469,8 +581,6 @@ export function parseGPaySpatialBlocks(
   }
 
   let txCounter = 1;
-  let activeSectionDate: string | null = null;
-  let activeSectionDateExplicitYear = false;
 
   // 3. Process each transaction card cluster around an amount anchor
   for (let aIdx = 0; aIdx < amountAnchors.length; aIdx++) {
@@ -479,14 +589,55 @@ export function parseGPaySpatialBlocks(
     const currentLine = anchor.line.text;
 
     // Define card boundaries:
-    // If only 1 anchor in the screenshot (individual transaction screen, Requirement 11), span entire screenshot
+    // If only 1 anchor in the screenshot (individual transaction screen), span entire screenshot
     let cardStart = 0;
     let cardEnd = sortedLines.length - 1;
 
     if (amountAnchors.length > 1) {
-      // Multi-transaction history: set boundary at the midpoint between anchors
-      cardStart = aIdx > 0 ? amountAnchors[aIdx - 1].lineIdx + 1 : 0;
-      cardEnd = aIdx < amountAnchors.length - 1 ? amountAnchors[aIdx + 1].lineIdx - 1 : sortedLines.length - 1;
+      const prevAnchor = aIdx > 0 ? amountAnchors[aIdx - 1] : null;
+      const nextAnchor = aIdx < amountAnchors.length - 1 ? amountAnchors[aIdx + 1] : null;
+      const currAnchor = anchor;
+
+      const prevMidY = prevAnchor ? (prevAnchor.line.bbox.y0 + prevAnchor.line.bbox.y1) / 2 : null;
+      const nextMidY = nextAnchor ? (nextAnchor.line.bbox.y0 + nextAnchor.line.bbox.y1) / 2 : null;
+      const currMidY = (currAnchor.line.bbox.y0 + currAnchor.line.bbox.y1) / 2;
+
+      const hasDistinctBboxes =
+        (prevMidY !== null && Math.abs(currMidY - prevMidY) > 25) ||
+        (nextMidY !== null && Math.abs(nextMidY - currMidY) > 25);
+
+      if (hasDistinctBboxes) {
+        // Multi-card layout with distinct vertical cards: cluster lines strictly within the vertical boundary
+        const prevSplitY = prevAnchor ? (prevAnchor.line.bbox.y1 + currAnchor.line.bbox.y0) / 2 : -Infinity;
+        const nextSplitY = nextAnchor ? (currAnchor.line.bbox.y1 + nextAnchor.line.bbox.y0) / 2 : Infinity;
+
+        cardStart = currAnchor.lineIdx;
+        while (cardStart > 0) {
+          const l = sortedLines[cardStart - 1];
+          const midY = (l.bbox.y0 + l.bbox.y1) / 2;
+          if (midY < prevSplitY) break;
+          cardStart--;
+        }
+        cardEnd = currAnchor.lineIdx;
+        while (cardEnd < sortedLines.length - 1) {
+          const nextIdx = cardEnd + 1;
+          // If the next line is a date header that introduces a subsequent transaction before nextAnchor, do not cross it
+          if (nextAnchor && nextIdx < nextAnchor.lineIdx) {
+            const isNextDate = Boolean(parseDateWithMetadata(sortedLines[nextIdx].text, effectiveYear));
+            const isFollowedByMerchantBeforeAnchor = nextIdx + 1 < nextAnchor.lineIdx && !parseDateWithMetadata(sortedLines[nextIdx + 1].text, effectiveYear);
+            if (isNextDate && isFollowedByMerchantBeforeAnchor) {
+              break;
+            }
+          }
+          const l = sortedLines[nextIdx];
+          const midY = (l.bbox.y0 + l.bbox.y1) / 2;
+          if (midY > nextSplitY) break;
+          cardEnd++;
+        }
+      } else {
+        cardStart = aIdx > 0 ? amountAnchors[aIdx - 1].lineIdx + 1 : 0;
+        cardEnd = aIdx < amountAnchors.length - 1 ? amountAnchors[aIdx + 1].lineIdx - 1 : sortedLines.length - 1;
+      }
     }
 
     // Collect card lines
@@ -494,45 +645,46 @@ export function parseGPaySpatialBlocks(
 
     // Track uncertain fields for this transaction
     const uncertainFields: UncertainFieldType[] = [];
-    if (anchor.substitutedRupee) {
-      uncertainFields.push('amount');
-    }
 
     // --- A. DIRECTION DETECTION ---
     let type: 'CREDIT' | 'DEBIT' = 'DEBIT';
     let directionCertain = false;
     let confidenceReason = '';
 
-    // Check current line first
-    if (creditKeywords.test(currentLine)) {
+    // Check for explicit positive / income indicator:
+    // 1. Line starts with or contains '+' followed by amount: "+₹1,000", "+ ₹1,000", "+1,000", "+ 1000", "+ ₹ 1000"
+    // 2. Credit keywords: received, credited, cashback, refund, deposit, payout, etc.
+    const hasPlusSign =
+      /(?:^|\s)\+\s*(?:[₹$¥£€]|rs\.?)?\s*[\d,]+/i.test(currentLine) ||
+      /(?:^|\s)\+\s*(?:[₹$¥£€]|rs\.?)?\s*[\d,]+/i.test(anchor.line.text) ||
+      currentLine.startsWith('+') ||
+      anchor.line.text.startsWith('+') ||
+      currentLine.includes('+') ||
+      anchor.line.text.includes('+');
+
+    const hasCreditWord = creditKeywords.test(currentLine) || cardLines.some((cl) => creditKeywords.test(cl.text));
+    const hasDebitWord = debitKeywords.test(currentLine) || cardLines.some((cl) => debitKeywords.test(cl.text));
+
+    // In multi-transaction GPay list view (amountAnchors.length > 1),
+    // the surrounding layout context confirms that amounts with '+' are Income,
+    // and amounts without '+' are Expenses.
+    const isMultiRowGPayList = amountAnchors.length > 1;
+
+    if (hasPlusSign || hasCreditWord) {
       type = 'CREDIT';
       directionCertain = true;
-      confidenceReason = 'Income verified via received/credit indicator.';
-    } else if (debitKeywords.test(currentLine)) {
+      confidenceReason = hasPlusSign
+        ? 'Income verified via + indicator.'
+        : 'Income verified via credit keyword.';
+    } else if (hasDebitWord || isMultiRowGPayList) {
       type = 'DEBIT';
       directionCertain = true;
-      confidenceReason = 'Expense verified via paid/sent/debit indicator.';
+      confidenceReason = hasDebitWord
+        ? 'Expense verified via debit indicator.'
+        : 'Expense recognized from GPay transaction list.';
     } else {
-      // Check surrounding lines in the card
-      for (const cl of cardLines) {
-        if (cl.text === currentLine) continue;
-        if (creditKeywords.test(cl.text)) {
-          type = 'CREDIT';
-          directionCertain = true;
-          confidenceReason = `Income inferred from '${cl.text.trim()}'.`;
-          break;
-        } else if (debitKeywords.test(cl.text)) {
-          type = 'DEBIT';
-          directionCertain = true;
-          confidenceReason = `Expense inferred from '${cl.text.trim()}'.`;
-          break;
-        }
-      }
-    }
-
-    if (!directionCertain) {
-      // Direction is unconfirmed: default to DEBIT but mark 'type' for user review (Requirement 9 & 10)
       type = 'DEBIT';
+      directionCertain = false;
       uncertainFields.push('type');
       confidenceReason = 'Needs review: Direction (income vs expense) could not be verified from screenshot text.';
     }
@@ -548,7 +700,7 @@ export function parseGPaySpatialBlocks(
       dateHasExplicitYear = dateOnCurrent.hasExplicitYear;
     }
 
-    // Check lines above current anchor within the card
+    // Check lines above current anchor within the card (section header date / preceding line date)
     if (!detectedDate) {
       for (let back = idx - 1; back >= cardStart; back--) {
         const lineText = sortedLines[back].text;
@@ -556,14 +708,12 @@ export function parseGPaySpatialBlocks(
         if (parsed) {
           detectedDate = parsed.isoDate;
           dateHasExplicitYear = parsed.hasExplicitYear;
-          activeSectionDate = parsed.isoDate;
-          activeSectionDateExplicitYear = parsed.hasExplicitYear;
           break;
         }
       }
     }
 
-    // Check lines below current anchor within the card (e.g. "Completed • 14 Aug 2026, 8:45 PM")
+    // Check lines directly below current anchor within the card (in GPay history, subtitle date is on idx + 1)
     if (!detectedDate) {
       for (let fwd = idx + 1; fwd <= cardEnd; fwd++) {
         const lineText = sortedLines[fwd].text;
@@ -576,21 +726,22 @@ export function parseGPaySpatialBlocks(
       }
     }
 
-    // Fallback to active section date or today
+    // Check pre-calculated running section date for this line
+    if (!detectedDate && lineDates[idx]) {
+      detectedDate = lineDates[idx]!.isoDate;
+      dateHasExplicitYear = lineDates[idx]!.hasExplicitYear;
+    }
+
+    // Fallback to today
     if (!detectedDate) {
-      if (activeSectionDate) {
-        detectedDate = activeSectionDate;
-        dateHasExplicitYear = activeSectionDateExplicitYear;
-      } else {
-        detectedDate = new Date().toISOString().slice(0, 10);
-        dateHasExplicitYear = false;
-        uncertainFields.push('date');
-      }
+      detectedDate = new Date().toISOString().slice(0, 10);
+      dateHasExplicitYear = false;
+      uncertainFields.push('date');
     }
 
     // Year validation rule (Requirement 7):
     // If date has no explicit year AND no global year header was visible in the screenshot,
-    // do NOT invent year silently; flag dateNeedsReview: true!
+    // flag dateNeedsReview: true
     const dateNeedsReview = !dateHasExplicitYear && !hasGlobalYear;
     if (dateNeedsReview && !uncertainFields.includes('date')) {
       uncertainFields.push('date');
@@ -599,26 +750,28 @@ export function parseGPaySpatialBlocks(
     // --- C. MERCHANT / PERSON DESCRIPTION DETECTION ---
     let candidateDescription = '';
 
-    // Case 1: Merchant name alongside amount, e.g. "Paid to Swiggy ₹420"
+    // Case 1: Merchant name alongside amount on the same line, e.g. "Paid to Swiggy ₹420"
     const lineWithoutAmount = currentLine
       .replace(/(?:[₹$¥£€]|rs\.?|inr)?\s*[0-9]{1,3}(?:,[0-9]{2,3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?/gi, '')
-      .replace(/[₹$¥£€,]/g, '')
+      .replace(/[₹$¥£€,+-]/g, '')
       .trim();
 
     if (
       lineWithoutAmount.length >= 3 &&
-      !/^(?:paid|paid\s*to|sent|sent\s*to|received|received\s*from|money\s*received|completed|credited|debited|payment\s*to)$/i.test(lineWithoutAmount)
+      !/^(?:paid|paid\s*to|sent|sent\s*to|received|received\s*from|money\s*received|completed|credited|debited|payment\s*to)$/i.test(lineWithoutAmount) &&
+      !parseDateWithMetadata(lineWithoutAmount, effectiveYear)
     ) {
       candidateDescription = lineWithoutAmount;
     } else {
       // Case 2: Inspect lines above the amount anchor within the card
       for (let back = idx - 1; back >= cardStart; back--) {
-        const candidateLine = sortedLines[back].text;
+        const candidateLine = sortedLines[back].text.trim();
         const isNoise = GPAY_UI_NOISE_PATTERNS.some((p) => p.test(candidateLine));
         const isDate = Boolean(parseDateWithMetadata(candidateLine, effectiveYear));
         const isUpiHandle = /@\w+/.test(candidateLine);
+        const isAmountOnly = /^[+-]?\s*(?:[₹$¥£€]|rs\.?)?\s*[\d,]+(?:\.\d{2})?$/i.test(candidateLine);
 
-        if (!isNoise && !isDate && !isUpiHandle && candidateLine.length >= 2) {
+        if (!isNoise && !isDate && !isUpiHandle && !isAmountOnly && candidateLine.length >= 2) {
           candidateDescription = candidateLine;
           break;
         }
@@ -627,11 +780,13 @@ export function parseGPaySpatialBlocks(
       // Case 3: If still empty, check lines below
       if (!candidateDescription) {
         for (let fwd = idx + 1; fwd <= cardEnd; fwd++) {
-          const candidateLine = sortedLines[fwd].text;
+          const candidateLine = sortedLines[fwd].text.trim();
           const isNoise = GPAY_UI_NOISE_PATTERNS.some((p) => p.test(candidateLine));
           const isDate = Boolean(parseDateWithMetadata(candidateLine, effectiveYear));
           const isUpiHandle = /@\w+/.test(candidateLine);
-          if (!isNoise && !isDate && !isUpiHandle && candidateLine.length >= 2) {
+          const isAmountOnly = /^[+-]?\s*(?:[₹$¥£€]|rs\.?)?\s*[\d,]+(?:\.\d{2})?$/i.test(candidateLine);
+
+          if (!isNoise && !isDate && !isUpiHandle && !isAmountOnly && candidateLine.length >= 2) {
             candidateDescription = candidateLine;
             break;
           }

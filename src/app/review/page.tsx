@@ -441,6 +441,30 @@ export default function ReviewExtractionPage() {
                 );
               })}
             </tbody>
+            {transactions.length > 0 && (
+              <tfoot className="bg-[#F5FAFF] dark:bg-[#17243A] border-t-2 border-[#D7E7F5] dark:border-[#2A3B52] font-mono text-xs">
+                <tr>
+                  <td colSpan={3} className="py-3 px-4 font-bold text-[#0F2747] dark:text-[#F8FAFC]">
+                    Total Expenses ({transactions.filter(t => t.type === 'DEBIT').length})
+                  </td>
+                  <td className="py-3 px-4 text-right font-bold text-[#0F2747] dark:text-[#F8FAFC]">
+                    -₹{(Number(transactions.filter(t => t.type === 'DEBIT').reduce((sum, t) => sum + BigInt(t.amountPaise || 0), 0n)) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </td>
+                  <td colSpan={2}></td>
+                </tr>
+                {transactions.some(t => t.type === 'CREDIT') && (
+                  <tr>
+                    <td colSpan={3} className="py-3 px-4 font-bold text-[#059669] dark:text-[#34D399]">
+                      Total Income ({transactions.filter(t => t.type === 'CREDIT').length})
+                    </td>
+                    <td className="py-3 px-4 text-right font-bold text-[#059669] dark:text-[#34D399]">
+                      +₹{(Number(transactions.filter(t => t.type === 'CREDIT').reduce((sum, t) => sum + BigInt(t.amountPaise || 0), 0n)) / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </td>
+                    <td colSpan={2}></td>
+                  </tr>
+                )}
+              </tfoot>
+            )}
           </table>
         </div>
       </div>

@@ -145,12 +145,12 @@ export default function UploadPage() {
           setStepLabel('Ready for review');
           router.push('/review');
         } else {
-          throw new Error("We couldn't read the transactions in this screenshot. Try a clearer GPay screenshot with transaction dates, names and amounts visible.");
+          throw new Error("We couldn't read transactions from this image. Try a clearer screenshot or upload a PDF/CSV statement.");
         }
       }
     } catch (err: any) {
       setExtractionError(
-        err?.message || "We couldn't read the transactions in this screenshot. Try a clearer GPay screenshot with transaction dates, names and amounts visible."
+        err?.message || "We couldn't read transactions from this image. Try a clearer screenshot or upload a PDF/CSV statement."
       );
       if (err?.devDebug) {
         setDevDebug(err.devDebug);
@@ -406,17 +406,19 @@ export default function UploadPage() {
           </div>
         )}
 
-        {/* Scan & Review Submit Button (Requirement 15: Hide when extraction error is shown, and never say Build My Plan for unextracted files) */}
-        {!extractionError && (
-          <button
-            type="button"
-            disabled={selectedFiles.length === 0 || isLoading || uploadStep > 0}
-            onClick={handleSubmit}
-            className="w-full py-4 rounded-xl bg-[#2563EB] text-white text-sm sm:text-base font-bold hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-md active:scale-98"
-          >
-            {isLoading || uploadStep > 0 ? (stepLabel || 'Understanding your statement…') : 'Scan & Review Transactions →'}
-          </button>
-        )}
+        {/* Scan & Review Submit Button */}
+        <button
+          type="button"
+          disabled={selectedFiles.length === 0 || isLoading || uploadStep > 0}
+          onClick={handleSubmit}
+          className="w-full py-4 rounded-xl bg-[#2563EB] text-white text-sm sm:text-base font-bold hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-md active:scale-98"
+        >
+          {isLoading || uploadStep > 0
+            ? (stepLabel || 'Understanding your statement…')
+            : extractionError
+            ? 'Retry Scan & Review →'
+            : 'Scan & Review Transactions →'}
+        </button>
 
         {/* Zero Password Guarantee (Requirement 23) */}
         <div className="pt-1 text-center">
